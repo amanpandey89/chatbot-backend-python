@@ -1,0 +1,16 @@
+[project]
+name = "chatbot-backend-python"
+version = "0.1.0"
+description = "Chatbot Backend Service"
+readme = "README.md"
+requires-python = ">=3.8"
+
+[tool.pyright]
+include = ["src"]
+executionEnvironments = [
+    { root = "." }
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

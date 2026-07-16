@@ -1,0 +1,11 @@
+{
+    "include": [
+        "src",
+        "test_store.py"
+    ],
+    "extraPaths": [
+        "."
+    ],
+    "venvPath": ".",
+    "venv": "venv"
+}
