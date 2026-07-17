@@ -64,7 +64,10 @@ def build_product_summary(products: list, answers: dict) -> str:
 
 
 def build_system_prompt(
-    products: list, answers: dict, tenant: Optional[dict] = None
+    products: list,
+    answers: dict,
+    tenant: Optional[dict] = None,
+    order_lookup: Optional[dict] = None,
 ) -> str:
     product_summary = build_product_summary(products, answers)
 
@@ -73,6 +76,11 @@ def build_system_prompt(
     store_name = tenant.get("store_name", "our store")
     store_url = (tenant.get("store_url") or "").rstrip("/")
     orders_url = f"{store_url}/my-account/orders/" if store_url else "your account orders page"
+
+    if order_lookup:
+        order_lookup_text = json.dumps(order_lookup, indent=2)
+    else:
+        order_lookup_text = "No order looked up yet (customer has not provided an order number)."
 
     system_prompt = f"""You are the official shopping assistant for {store_name}, an online ecommerce store.
     You help customers with product recommendations AND store support (orders, tracking, returns, accessories).
@@ -88,21 +96,29 @@ def build_system_prompt(
     ANSWERS COLLECTED FROM USER SO FAR:
     {answers_text}
 
+    LIVE ORDER LOOKUP RESULT (from WooCommerce — trust this as source of truth):
+    {order_lookup_text}
+
     YOUR BEHAVIOUR:
 
     A) ECOMMERCE SUPPORT (orders, tracking, returns, account help):
     1. NEVER say you cannot help with orders, tracking, returns, shipping, or payments. You ARE this store's assistant.
     2. "Track my order" / order status:
-       - Warmly confirm you can help.
-       - Ask for their order number (and email used at checkout if needed).
-       - Tell them they can also check live status here: {orders_url}
-       - Once they share an order number, acknowledge it and guide next steps (check account page, contact support if delayed). Do not invent shipment locations or fake tracking numbers.
+       - If LIVE ORDER LOOKUP RESULT has found=true: tell the customer their REAL order status in chat.
+         Include: order number, status_label (e.g. Processing), total with currency, date, and item names.
+         Do NOT invent tracking numbers or carrier details that are not in the lookup result.
+         Do NOT only say "visit the orders page" — you must state the status in this chat.
+         You may optionally also share {orders_url} as an extra link.
+       - If found=false with error not_found: say that order number was not found and ask them to double-check it.
+       - If found=false with error email_mismatch: ask them to confirm the email used at checkout.
+       - If found=false with error lookup_failed: apologise briefly and ask them to try again shortly, and share {orders_url}.
+       - If no order has been looked up yet: warmly confirm you can help and ask for order number and checkout email.
     3. "I want to return an item" / refunds:
        - Confirm you can help with returns.
        - Ask for order number and which item they want to return.
+       - If LIVE ORDER LOOKUP RESULT has found=true, acknowledge that order and its items while explaining the return steps.
        - Briefly explain a typical return flow (request return → pack item → use return label / drop-off → refund after inspection).
-       - Point them to their account orders page if useful: {orders_url}
-    4. Shipping / delivery questions: give clear, helpful guidance and ask for order number if status is needed.
+    4. Shipping / delivery questions: give clear, helpful guidance; use LIVE ORDER LOOKUP RESULT when available.
     5. Keep support replies as plain conversational text only — no JSON.
 
     B) PRODUCT RECOMMENDATIONS:
@@ -143,10 +159,15 @@ def build_system_prompt(
 
 
 async def get_recommendation(
-    session: Session, products: list, tenant: Optional[dict] = None
+    session: Session,
+    products: list,
+    tenant: Optional[dict] = None,
+    order_lookup: Optional[dict] = None,
 ) -> str:
 
-    system_prompt = build_system_prompt(products, session["answers"], tenant)
+    system_prompt = build_system_prompt(
+        products, session["answers"], tenant, order_lookup
+    )
 
     messages = cast(
         list[ChatCompletionMessageParam],
