@@ -19,6 +19,14 @@
   let isLoading = false;  // are we waiting for a backend response?
   let currencySymbol = '₹'; // filled after /api/session call
 
+  // Shown only before the first user message in a new session
+  const QUICK_REPLIES = [
+    "Track my order",
+    "I want to return an item",
+    "Recommend a phone",
+    "Find accessories"
+  ];
+
   // ── 3. Inject CSS styles ───────────────────────────────────────────────
   // We inject styles directly so the widget works on any theme
   // without needing a separate CSS file
@@ -206,8 +214,41 @@
     #cb-send svg { width: 18px; height: 18px; fill: white; }
     #cb-send:disabled { background: #cccccc; cursor: default; }
 
+    .cb-quick-replies {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+      width: 100%;
+      box-sizing: border-box;
+      margin-top: 4px;
+    }
+    .cb-quick-reply {
+      background: #ffffff;
+      color: #1a1a1a;
+      border: 1px solid #dddddd;
+      border-radius: 20px;
+      padding: 8px 14px;
+      font-size: 13px;
+      font-family: inherit;
+      line-height: 1.4;
+      cursor: pointer;
+      text-align: left;
+      max-width: 100%;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .cb-quick-reply:hover {
+      background: #f3efff;
+      border-color: #6c47ff;
+      color: #6c47ff;
+    }
+    .cb-quick-reply:active {
+      background: #ebe4ff;
+    }
+
     @media (max-width: 400px) {
       #cb-window { width: calc(100vw - 24px); right: 12px; }
+      .cb-quick-reply { font-size: 12px; padding: 8px 12px; }
     }
   `;
   document.head.appendChild(style);
@@ -322,6 +363,39 @@
     inputEl.disabled = loading;
   }
 
+  // Quick-reply suggestion buttons (UI only — uses sendMessage)
+  function showQuickReplies() {
+    hideQuickReplies();
+
+    const container = document.createElement('div');
+    container.id = 'cb-quick-replies';
+    container.className = 'cb-quick-replies';
+
+    QUICK_REPLIES.forEach(function (label) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'cb-quick-reply';
+      btn.textContent = label;
+      btn.dataset.reply = label;
+      container.appendChild(btn);
+    });
+
+    container.addEventListener('click', function (e) {
+      const btn = e.target.closest('.cb-quick-reply');
+      if (!btn || isLoading || !sessionId) return;
+      inputEl.value = btn.dataset.reply;
+      sendMessage();
+    });
+
+    messagesEl.appendChild(container);
+    scrollToBottom();
+  }
+
+  function hideQuickReplies() {
+    const el = document.getElementById('cb-quick-replies');
+    if (el) el.remove();
+  }
+
   // ── 6. API call functions ──────────────────────────────────────────────
 
   // Call POST /api/session to start a conversation
@@ -338,6 +412,7 @@
         sessionId = data.session_id;
         if (data.currency_symbol) currencySymbol = data.currency_symbol;
         addMessage(data.greeting, 'bot');
+        showQuickReplies();
         sendBtn.disabled = false; // enable send now that session exists
       } else {
         addMessage('Sorry, could not connect. Please try again later.', 'bot');
@@ -351,6 +426,9 @@
   async function sendMessage() {
     const text = inputEl.value.trim();
     if (!text || isLoading || !sessionId) return;
+
+    // Hide suggestions permanently once the user sends anything
+    hideQuickReplies();
 
     // Show user message in chat
     addMessage(text, 'user');
