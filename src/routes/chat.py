@@ -2,7 +2,7 @@ import json
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from src.services.store import get_tenant, get_session, add_message
-from src.services.woocommerce import fetch_products
+from src.services.woocommerce import fetch_products, lookup_order_status
 from src.services.openai_service import get_recommendation
 
 router = APIRouter()
@@ -37,8 +37,13 @@ async def chat(body: ChatRequest):
         if not fresh_session:
             raise HTTPException(status_code=404, detail="Session not found or expired.")
 
-        # ── Send products to OpenAI ─────────────────────────────
-        ai_response = await get_recommendation(fresh_session, products, tenant)
+        # Look up live order status when the user shared an order number
+        order_lookup = await lookup_order_status(tenant, fresh_session["messages"])
+
+        # ── Send products (+ optional order status) to OpenAI ─────────────
+        ai_response = await get_recommendation(
+            fresh_session, products, tenant, order_lookup
+        )
 
         add_message(body.session_id, "assistant", ai_response)
 
