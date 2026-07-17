@@ -153,7 +153,22 @@ def build_system_prompt(
     GENERAL:
     - Keep all responses short, warm, and helpful.
     - When asking a question or giving support help, respond with plain conversational text only — no JSON.
-    - Prefer helping inside this chat first; share the orders page link as a useful option, not a brush-off."""
+    - Prefer helping inside this chat first; share the orders page link as a useful option, not a brush-off.
+    - FORMATTING (important for chat readability):
+      - Use real line breaks between sentences/sections.
+      - Put each numbered step on its own line, like:
+        1. First step
+        2. Second step
+        3. Third step
+      - For order status, prefer a short structured layout, e.g.:
+        I found your order #119!
+
+        Status: Processing
+        Item: Brand Buttons
+        Total: ₹9.99
+
+        Let me know if you need anything else.
+      - Do not write multi-step instructions as one long paragraph."""
 
     return system_prompt
 
