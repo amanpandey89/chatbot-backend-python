@@ -38,7 +38,7 @@ async def chat(body: ChatRequest):
             raise HTTPException(status_code=404, detail="Session not found or expired.")
 
         # ── Send products to OpenAI ─────────────────────────────
-        ai_response = await get_recommendation(fresh_session, products)
+        ai_response = await get_recommendation(fresh_session, products, tenant)
 
         add_message(body.session_id, "assistant", ai_response)
 
