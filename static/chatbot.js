@@ -102,11 +102,12 @@
     }
 
     .cb-msg {
-      max-width: 80%;
+      max-width: 85%;
       padding: 10px 14px;
       border-radius: 14px;
       line-height: 1.5;
       word-wrap: break-word;
+      white-space: pre-wrap;
     }
     .cb-msg-bot {
       background: #ffffff;
@@ -291,11 +292,21 @@
   // ── 5. Helper functions ────────────────────────────────────────────────
 
   // Add a text message bubble to the chat window
+  function formatMessageText(text) {
+    if (!text) return '';
+    return String(text)
+      // Put numbered steps on their own lines when AI returns them inline
+      .replace(/\s+(\d+)\.\s+/g, '\n$1. ')
+      // Keep paragraph breaks tidy
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
   function addMessage(text, sender) {
     // sender is either 'bot' or 'user'
     const div = document.createElement('div');
     div.className = `cb-msg cb-msg-${sender}`;
-    div.textContent = text;
+    div.textContent = sender === 'bot' ? formatMessageText(text) : text;
     messagesEl.appendChild(div);
     scrollToBottom();
   }
