@@ -1,9 +1,11 @@
 import json
+from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from src.services.store import get_tenant, get_session, add_message
+from src.services.store import get_tenant, get_session, add_message, set_user_context
 from src.services.woocommerce import fetch_products, lookup_order_status
 from src.services.openai_service import get_recommendation
+from src.services.user_context import merge_user_context
 
 router = APIRouter()
 
@@ -12,6 +14,7 @@ class ChatRequest(BaseModel):
     store_id: str
     session_id: str
     message: str
+    user_context: Optional[Dict[str, Any]] = None
 
 
 @router.post("/chat")
@@ -26,6 +29,10 @@ async def chat(body: ChatRequest):
     session = get_session(body.session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired.")
+
+    if body.user_context:
+        merged = merge_user_context(session.get("user_context"), body.user_context)
+        set_user_context(body.session_id, merged)
 
     add_message(body.session_id, "user", body.message)
 

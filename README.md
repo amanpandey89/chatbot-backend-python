@@ -90,31 +90,20 @@ Go to **WooCommerce → Settings → Advanced → REST API → Add Key**
 
 ## WordPress Integration
 
-Add to `functions.php`:
+Use the plugin in `wordpress-plugin/ai-shopping-assistant/` (copy into `wp-content/plugins/` and activate).
 
-```php
-add_action( 'wp_footer', function() {
+1. Open **WP Admin → AI Assistant**
+2. Set **Backend URL** and **Store ID**
+3. Optionally edit **Quick replies**, visibility, and personalized picks on open
 
-    $backend_url = 'https://your-railway-url.up.railway.app';
-    $store_id    = 'your-store-id-here';
-    $visitor_ip  = $_SERVER['REMOTE_ADDR'];
+The plugin embeds `chatbot.js`, sends `user_context`, and enables **Add to cart** from chat product cards.
 
-    $blocked_ips = [];  // IPs to block
-    $allowed_ips = [];  // Whitelist — leave empty for everyone
+### Backend extras
 
-    if ( current_user_can( 'manage_options' ) ) return;
-    if ( ! empty( $allowed_ips ) && ! in_array( $visitor_ip, $allowed_ips, true ) ) return;
-    if ( in_array( $visitor_ip, $blocked_ips, true ) ) return;
+- **Product cache** — in-memory TTL (default 10 minutes, `PRODUCT_CACHE_TTL`)
+- **Persistent sessions** — SQLite at `data/sessions.db` (override with `SESSIONS_DB`)
+- **Proactive recommendations** — `/api/session` may return `recommendations` when preference signals exist
 
-    printf(
-        '<script src="%s/static/chatbot.js" data-store-id="%s" data-backend-url="%s" defer></script>',
-        esc_url( $backend_url ),
-        esc_attr( $store_id ),
-        esc_url( $backend_url )
-    );
-
-} );
-```
 
 ---
 

@@ -1,49 +1,51 @@
 # src/services/openai_service.py
 import json
-import os
+import re
 from typing import Optional, cast
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 from src.services.store import Session
+from src.services.user_context import preference_score
 
 # Initialize client — reads OPENAI_API_KEY from .env automatically
 client = AsyncOpenAI()
 
 
-def build_product_summary(products: list, answers: dict) -> str:
+def build_product_summary(
+    products: list, answers: dict, user_context: Optional[dict] = None
+) -> str:
     """
-    Sort products by relevance to user answers before sending to AI.
-    This ensures the most relevant products are in the top 25.
+    Sort products by preference + budget relevance before sending to AI.
     """
 
-    # Extract budget number from answers if available
-    # e.g. "under 50" → 50.0
     budget = None
-    budget_text = answers.get("budget", "")
-    if budget_text:
-        import re
+    budget_text = (answers or {}).get("budget", "") or ""
+    prefs = (user_context or {}).get("preferences") or {}
+    if not budget_text:
+        budget_text = prefs.get("budget_hint") or ""
 
+    if budget_text:
         numbers = re.findall(r"[\d.]+", budget_text)
         if numbers:
             budget = float(numbers[0])
 
-    # Sort products — budget matches first
     def relevance_score(p):
+        score = preference_score(p, user_context)
+
         try:
             price = float(p.get("price") or p.get("regular_price") or 0)
         except (ValueError, TypeError):
             price = 0
 
         if budget and price > 0:
-            # closer to budget = higher score
-            diff = abs(price - budget)
-            return diff
-        return 999999  # no budget — no sorting
+            score += abs(price - budget) / max(budget, 1.0)
+
+        return score
 
     sorted_products = sorted(products, key=relevance_score)
 
     lines = []
-    for p in sorted_products:  # send top 40 instead of 25
+    for p in sorted_products:
         categories = ", ".join(p["categories"])
         tags = ", ".join(p["tags"])
         attributes = json.dumps(p["attributes"])
@@ -68,19 +70,32 @@ def build_system_prompt(
     answers: dict,
     tenant: Optional[dict] = None,
     order_lookup: Optional[dict] = None,
+    user_context: Optional[dict] = None,
 ) -> str:
-    product_summary = build_product_summary(products, answers)
+    product_summary = build_product_summary(products, answers, user_context)
 
     answers_text = json.dumps(answers, indent=2)
+    user_context_text = json.dumps(user_context or {}, indent=2)
     tenant = tenant or {}
     store_name = tenant.get("store_name", "our store")
     store_url = (tenant.get("store_url") or "").rstrip("/")
-    orders_url = f"{store_url}/my-account/orders/" if store_url else "your account orders page"
+    orders_url = (
+        f"{store_url}/my-account/orders/" if store_url else "your account orders page"
+    )
 
     if order_lookup:
         order_lookup_text = json.dumps(order_lookup, indent=2)
     else:
-        order_lookup_text = "No order looked up yet (customer has not provided an order number)."
+        order_lookup_text = (
+            "No order looked up yet (customer has not provided an order number)."
+        )
+
+    auth_state = (user_context or {}).get("auth_state", "guest")
+    personalization_note = (
+        "Customer is LOGGED IN — prefer account / purchase history signals."
+        if auth_state == "logged_in"
+        else "Customer is a GUEST — prefer cookie / browsing preference signals."
+    )
 
     system_prompt = f"""You are the official shopping assistant for {store_name}, an online ecommerce store.
     You help customers with product recommendations AND store support (orders, tracking, returns, accessories).
@@ -95,6 +110,10 @@ def build_system_prompt(
 
     ANSWERS COLLECTED FROM USER SO FAR:
     {answers_text}
+
+    USER PREFERENCE PROFILE (from WordPress plugin — trust this for personalization):
+    {user_context_text}
+    PERSONALIZATION MODE: {personalization_note}
 
     LIVE ORDER LOOKUP RESULT (from WooCommerce — trust this as source of truth):
     {order_lookup_text}
@@ -122,18 +141,23 @@ def build_system_prompt(
     5. Keep support replies as plain conversational text only — no JSON.
 
     B) PRODUCT RECOMMENDATIONS:
-    1. Use your own knowledge about each product — specs, features, pros, cons, typical use cases — based on the product name and model. Do not rely on the product description provided.
-    2. If you recognise a product name or model (e.g. iPhone 13, Samsung Galaxy S21) use your training knowledge to explain why it fits the user.
-    3. Be flexible — not every question needs budget, purpose, and preference before recommending:
-    - "best phones" or "top phones" / "Recommend a phone" → recommend immediately
+    1. Use USER PREFERENCE PROFILE when recommending:
+       - Guest (cookies): lean on viewed_categories, viewed_product_ids, cart_product_ids, search_terms, brand_affinity.
+       - Logged in (account): lean on last_order_categories and account signals first, then browsing cookies.
+       - Mention personalization lightly in the reason (e.g. "matches phones you've been browsing") when relevant.
+       - Never invent preferences that are not in the profile.
+    2. Use your own knowledge about each product — specs, features, pros, cons, typical use cases — based on the product name and model. Do not rely on the product description provided.
+    3. If you recognise a product name or model (e.g. iPhone 13, Samsung Galaxy S21) use your training knowledge to explain why it fits the user.
+    4. Be flexible — not every question needs budget, purpose, and preference before recommending:
+    - "best phones" or "top phones" / "Recommend a phone" → recommend immediately using preference profile when available
     - "Find accessories" → recommend accessory products from the catalog immediately
     - "best phone under £300" → recommend immediately, budget already given
     - "Samsung phones" → recommend Samsung options immediately
     - "cheap phones" → recommend lowest priced options immediately
     - "I need a phone for gaming" → recommend immediately based on use case
     - Only ask clarifying questions when the request is genuinely vague
-    4. When you have enough context to recommend — do it immediately. Never ask unnecessary questions.
-    5. When giving recommendations respond ONLY with this exact JSON format and nothing else:
+    5. When you have enough context to recommend — do it immediately. Never ask unnecessary questions.
+    6. When giving recommendations respond ONLY with this exact JSON format and nothing else:
     {{
     "type": "recommendations",
     "message": "Based on your needs, here are my top picks:",
@@ -143,12 +167,12 @@ def build_system_prompt(
         {{ "id": 789, "reason": "one sentence using your knowledge of this product and why it fits" }}
     ]
     }}
-    6. ALWAYS recommend exactly 3 products. Never fewer.
-    7. If fewer than 3 products match perfectly, pick the closest alternatives — always return 3.
-    8. Rank by best fit first — consider budget, use case, and preference if given, otherwise rank by overall value.
-    9. Only recommend products that exist in the AVAILABLE PRODUCTS list above — never invent product IDs.
-    10. Use product IDs exactly as shown — do not make up IDs.
-    11. CRITICAL: Your entire response when recommending must be ONLY the JSON object. Start with {{ and end with }}. Nothing before or after.
+    7. ALWAYS recommend exactly 3 products. Never fewer.
+    8. If fewer than 3 products match perfectly, pick the closest alternatives — always return 3.
+    9. Rank by best fit first — consider preference profile, budget, use case, otherwise overall value.
+    10. Only recommend products that exist in the AVAILABLE PRODUCTS list above — never invent product IDs.
+    11. Use product IDs exactly as shown — do not make up IDs.
+    12. CRITICAL: Your entire response when recommending must be ONLY the JSON object. Start with {{ and end with }}. Nothing before or after.
 
     GENERAL:
     - Keep all responses short, warm, and helpful.
@@ -181,7 +205,11 @@ async def get_recommendation(
 ) -> str:
 
     system_prompt = build_system_prompt(
-        products, session["answers"], tenant, order_lookup
+        products,
+        session.get("answers") or {},
+        tenant,
+        order_lookup,
+        session.get("user_context") or {},
     )
 
     messages = cast(
