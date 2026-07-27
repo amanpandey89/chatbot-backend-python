@@ -1,7 +1,12 @@
 import os
 import re
-from typing import Optional
+import time
+from typing import Dict, List, Optional, Tuple
 import httpx
+
+# In-memory product cache: store_url -> (expires_at, products)
+_PRODUCT_CACHE: Dict[str, Tuple[float, list]] = {}
+PRODUCT_CACHE_TTL = int(os.getenv("PRODUCT_CACHE_TTL", "600"))  # 10 minutes
 
 
 def strip_html(html: str) -> str:
@@ -35,40 +40,7 @@ def normalize_product(p: dict) -> dict:
     }
 
 
-# async def fetch_products(tenant: dict) -> list:
-#     """
-#     Fetch Products from WooCommerce API
-#     """
-
-#     store_url = tenant["store_url"]
-#     consumer_key = tenant["consumer_key"]
-#     consumer_secret = tenant["consumer_secret"]
-
-#     auth = (consumer_key, consumer_secret)
-
-#     async with httpx.AsyncClient() as client:
-
-#         response = await client.get(
-#             f"{store_url}/wp-json/wc/v3/products",
-#             params={
-#                 "consumer_key": consumer_key,
-#                 "consumer_secret": consumer_secret,
-#                 "per_page": 100,
-#                 "status": "publish",
-#                 "stock_status": "instock",
-#             },
-#             timeout=15.0,
-#         )
-
-#         response.raise_for_status()
-
-#         raw_products = response.json()
-
-#         return [normalize_product(p) for p in raw_products]
-
-
-async def fetch_products(tenant: dict) -> list:
-
+async def _fetch_products_uncached(tenant: dict) -> list:
     store_url = tenant["store_url"]
     consumer_key = tenant["consumer_key"]
     consumer_secret = tenant["consumer_secret"]
@@ -114,17 +86,31 @@ async def fetch_products(tenant: dict) -> list:
 
             raw_products.extend(page_products)
 
-            # If we received fewer than requested, we're on the last page
             if len(page_products) < 100:
                 break
 
             page += 1
 
     all_products = [normalize_product(p) for p in raw_products]
-
     print(f"── Total products fetched: {len(all_products)}")
-
     return all_products
+
+
+async def fetch_products(tenant: dict, force_refresh: bool = False) -> list:
+    """Fetch products with a short in-memory TTL cache per store."""
+    cache_key = (tenant.get("store_url") or "").rstrip("/")
+    now = time.time()
+
+    if not force_refresh and cache_key in _PRODUCT_CACHE:
+        expires_at, products = _PRODUCT_CACHE[cache_key]
+        if now < expires_at:
+            print(f"── Product cache HIT ({len(products)} items)")
+            return products
+
+    products = await _fetch_products_uncached(tenant)
+    _PRODUCT_CACHE[cache_key] = (now + PRODUCT_CACHE_TTL, products)
+    print(f"── Product cache STORE (ttl={PRODUCT_CACHE_TTL}s)")
+    return products
 
 
 def normalize_order(order: dict) -> dict:

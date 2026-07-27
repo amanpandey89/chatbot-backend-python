@@ -20,12 +20,66 @@
   let currencySymbol = '₹'; // filled after /api/session call
 
   // Shown only before the first user message in a new session
-  const QUICK_REPLIES = [
+  const DEFAULT_QUICK_REPLIES = [
     "Track my order",
     "I want to return an item",
     "Recommend a phone",
     "Find accessories"
   ];
+
+  function getQuickReplies() {
+    if (Array.isArray(window.CB_QUICK_REPLIES) && window.CB_QUICK_REPLIES.length) {
+      return window.CB_QUICK_REPLIES.map(String).filter(Boolean);
+    }
+    try {
+      const attr = scriptTag.getAttribute('data-quick-replies');
+      if (attr) {
+        const parsed = JSON.parse(attr);
+        if (Array.isArray(parsed) && parsed.length) {
+          return parsed.map(String).filter(Boolean);
+        }
+      }
+    } catch (e) { /* ignore */ }
+    return DEFAULT_QUICK_REPLIES.slice();
+  }
+
+  // WordPress plugin sets window.CB_USER_CONTEXT and/or cookie cb_prefs
+  function readCookie(name) {
+    const match = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/([.$?*|{}()[\]\\/+^])/g, '\\$1') + '=([^;]*)'));
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+
+  function getUserContext() {
+    let context = null;
+
+    if (window.CB_USER_CONTEXT && typeof window.CB_USER_CONTEXT === 'object') {
+      context = window.CB_USER_CONTEXT;
+    } else {
+      try {
+        const attr = scriptTag.getAttribute('data-user-context');
+        if (attr) context = JSON.parse(attr);
+      } catch (e) { /* ignore bad JSON */ }
+    }
+
+    // Merge guest browsing cookie if plugin did not already include it
+    try {
+      const raw = readCookie('cb_prefs');
+      if (raw) {
+        const cookiePrefs = JSON.parse(raw);
+        context = context || {
+          auth_state: 'guest',
+          visitor_id: null,
+          customer_id: null,
+          preferences: {},
+          source: 'cookies'
+        };
+        context.preferences = Object.assign({}, cookiePrefs, context.preferences || {});
+        if (!context.source || context.source === 'none') context.source = 'cookies';
+      }
+    } catch (e) { /* ignore bad cookie */ }
+
+    return context;
+  }
 
   // ── 3. Inject CSS styles ───────────────────────────────────────────────
   // We inject styles directly so the widget works on any theme
@@ -102,11 +156,12 @@
     }
 
     .cb-msg {
-      max-width: 80%;
+      max-width: 85%;
       padding: 10px 14px;
       border-radius: 14px;
       line-height: 1.5;
       word-wrap: break-word;
+      white-space: pre-wrap;
     }
     .cb-msg-bot {
       background: #ffffff;
@@ -177,8 +232,41 @@
       font-size: 13px;
       font-weight: 500;
       text-align: center;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
     }
     .cb-product-btn:hover { background: #5538d6; color: white; }
+    .cb-product-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .cb-product-btn-secondary {
+      background: #ffffff;
+      color: #6c47ff;
+      border: 1px solid #6c47ff;
+    }
+    .cb-product-btn-secondary:hover {
+      background: #f3efff;
+      color: #5538d6;
+    }
+    .cb-product-btn:disabled {
+      background: #cccccc;
+      border-color: #cccccc;
+      color: #ffffff;
+      cursor: default;
+    }
+    .cb-toast {
+      align-self: center;
+      background: #1a1a1a;
+      color: #ffffff;
+      font-size: 12px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      opacity: 0.92;
+    }
 
     #cb-input-row {
       display: flex;
@@ -291,11 +379,21 @@
   // ── 5. Helper functions ────────────────────────────────────────────────
 
   // Add a text message bubble to the chat window
+  function formatMessageText(text) {
+    if (!text) return '';
+    return String(text)
+      // Put numbered steps on their own lines when AI returns them inline
+      .replace(/\s+(\d+)\.\s+/g, '\n$1. ')
+      // Keep paragraph breaks tidy
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
   function addMessage(text, sender) {
     // sender is either 'bot' or 'user'
     const div = document.createElement('div');
     div.className = `cb-msg cb-msg-${sender}`;
-    div.textContent = text;
+    div.textContent = sender === 'bot' ? formatMessageText(text) : text;
     messagesEl.appendChild(div);
     scrollToBottom();
   }
@@ -322,6 +420,60 @@
   }
 
   // Render product recommendation cards
+  function showToast(text) {
+    const el = document.createElement('div');
+    el.className = 'cb-toast';
+    el.textContent = text;
+    messagesEl.appendChild(el);
+    scrollToBottom();
+    setTimeout(function () { el.remove(); }, 2500);
+  }
+
+  async function addToCart(productId, button) {
+    const cart = window.CB_CART || {};
+    if (!cart.enabled || !cart.ajaxUrl || !productId) {
+      showToast('Add to cart is not available on this page.');
+      return;
+    }
+
+    const original = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Adding...';
+
+    try {
+      const res = await fetch(cart.ajaxUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        credentials: 'same-origin',
+        body: 'product_id=' + encodeURIComponent(productId) + '&quantity=1'
+      });
+      const data = await res.json().catch(function () { return null; });
+
+      if (res.ok && data && data.error) {
+        showToast(data.error_message || 'Could not add to cart.');
+        button.disabled = false;
+        button.textContent = original;
+        return;
+      }
+
+      button.textContent = 'Added';
+      showToast('Added to cart');
+      document.body.dispatchEvent(new Event('wc_fragment_refresh'));
+      if (typeof jQuery !== 'undefined') {
+        jQuery(document.body).trigger('wc_fragment_refresh');
+        jQuery(document.body).trigger('added_to_cart');
+      }
+      setTimeout(function () {
+        button.disabled = false;
+        button.textContent = original;
+      }, 1500);
+    } catch (err) {
+      showToast('Could not add to cart. Please try again.');
+      button.disabled = false;
+      button.textContent = original;
+    }
+  }
+
   function addProductCards(message, products) {
     // First show the AI intro message
     addMessage(message, 'bot');
@@ -331,25 +483,39 @@
       const card = document.createElement('div');
       card.className = 'cb-product-card';
 
-      // Build image — use placeholder if no image
       const imgSrc = p.image_url || 'https://via.placeholder.com/300x140?text=No+Image';
-
-      // Format price — add currency symbol
       const price = p.price ? currencySymbol + Number(p.price).toLocaleString('en-IN') : '';
       const regular = p.regular_price && p.regular_price !== p.price
         ? currencySymbol + Number(p.regular_price).toLocaleString('en-IN')
         : '';
 
-      card.innerHTML = `
-        <img src="${imgSrc}" alt="${p.name}" loading="lazy"/>
-        <div class="cb-product-name">${p.name}</div>
-        <div class="cb-product-price">
-          ${price}
-          ${regular ? '<span style="text-decoration:line-through;color:#999;font-size:12px;margin-left:6px;">' + regular + '</span>' : ''}
-        </div>
-        <div class="cb-product-reason">${p.reason}</div>
-        <a href="${p.product_url}" target="_blank" class="cb-product-btn">View Product</a>
-      `;
+      const cartEnabled = window.CB_CART && window.CB_CART.enabled;
+      card.innerHTML =
+        '<img src="' + imgSrc + '" alt="' + (p.name || '') + '" loading="lazy"/>' +
+        '<div class="cb-product-name"></div>' +
+        '<div class="cb-product-price">' +
+          price +
+          (regular ? '<span style="text-decoration:line-through;color:#999;font-size:12px;margin-left:6px;">' + regular + '</span>' : '') +
+        '</div>' +
+        '<div class="cb-product-reason"></div>' +
+        '<div class="cb-product-actions">' +
+          (cartEnabled
+            ? '<button type="button" class="cb-product-btn cb-add-cart" data-product-id="' + p.id + '">Add to cart</button>'
+            : '') +
+          '<a href="' + (p.product_url || '#') + '" target="_blank" class="cb-product-btn' +
+            (cartEnabled ? ' cb-product-btn-secondary' : '') + '">View Product</a>' +
+        '</div>';
+
+      card.querySelector('.cb-product-name').textContent = p.name || '';
+      card.querySelector('.cb-product-reason').textContent = p.reason || '';
+
+      const addBtn = card.querySelector('.cb-add-cart');
+      if (addBtn) {
+        addBtn.addEventListener('click', function () {
+          addToCart(p.id, addBtn);
+        });
+      }
+
       messagesEl.appendChild(card);
     });
 
@@ -371,7 +537,7 @@
     container.id = 'cb-quick-replies';
     container.className = 'cb-quick-replies';
 
-    QUICK_REPLIES.forEach(function (label) {
+    getQuickReplies().forEach(function (label) {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'cb-quick-reply';
@@ -401,10 +567,14 @@
   // Call POST /api/session to start a conversation
   async function startSession() {
     try {
+      const payload = { store_id: STORE_ID };
+      const userContext = getUserContext();
+      if (userContext) payload.user_context = userContext;
+
       const res = await fetch(`${BACKEND}/api/session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ store_id: STORE_ID })
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
 
@@ -412,6 +582,21 @@
         sessionId = data.session_id;
         if (data.currency_symbol) currencySymbol = data.currency_symbol;
         addMessage(data.greeting, 'bot');
+
+        const proactiveOn = window.CB_PROACTIVE_RECS !== false;
+        if (
+          proactiveOn &&
+          data.recommendations &&
+          data.recommendations.type === 'recommendations' &&
+          Array.isArray(data.recommendations.products) &&
+          data.recommendations.products.length
+        ) {
+          addProductCards(
+            data.recommendations.message || 'Here are some picks for you:',
+            data.recommendations.products
+          );
+        }
+
         showQuickReplies();
         sendBtn.disabled = false; // enable send now that session exists
       } else {
@@ -439,14 +624,18 @@
     showTyping();
 
     try {
+      const payload = {
+        store_id: STORE_ID,
+        session_id: sessionId,
+        message: text
+      };
+      const userContext = getUserContext();
+      if (userContext) payload.user_context = userContext;
+
       const res = await fetch(`${BACKEND}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          store_id: STORE_ID,
-          session_id: sessionId,
-          message: text
-        })
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       hideTyping();
