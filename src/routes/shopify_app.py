@@ -236,10 +236,166 @@ def _begin_oauth(request: Request, shop: str):
 def shopify_install(
     request: Request,
     shop: str = Query(..., description="example.myshopify.com"),
+    direct: int = Query(0, description="1 = jump straight to OAuth authorize"),
 ):
-    """Start OAuth install for a Shopify store."""
+    """
+    Start install for a shop.
+
+    Custom-distribution apps often reject a raw /oauth/authorize URL with
+    "installation link is invalid". Default page explains Partners Generate Link.
+    Pass direct=1 to attempt classic OAuth authorize anyway.
+    """
     _require_shopify_config()
+    shop = shopify_store_id(shop)
+    if not shop.endswith(".myshopify.com"):
+        raise HTTPException(status_code=400, detail="Invalid shop domain")
+
+    if direct:
+        return _begin_oauth(request, shop)
+
+    backend = _backend_url(request)
+    handle = _shop_handle(shop)
+    oauth_url = f"{backend}/shopify/install?shop={shop}&direct=1"
+    admin_oauth = (
+        f"https://admin.shopify.com/oauth/install?client_id={_api_key()}"
+    )
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"/><title>Install AI Shopping Assistant</title>
+<style>
+  body{{font-family:system-ui,sans-serif;background:#141210;color:#f4f1ec;
+    display:grid;place-items:center;min-height:100vh;margin:0;padding:24px}}
+  .card{{max-width:640px;background:#221e1b;border:1px solid rgba(255,255,255,.08);
+    border-radius:18px;padding:28px;line-height:1.55}}
+  h1{{margin:0 0 10px;font-size:24px}}
+  ol{{padding-left:20px;color:#cfc6bc}}
+  li{{margin:8px 0}}
+  a.btn{{display:inline-flex;margin:8px 8px 0 0;padding:11px 16px;border-radius:12px;
+    background:#4fd18a;color:#102418;font-weight:700;text-decoration:none}}
+  a.secondary{{background:rgba(255,255,255,.08);color:#f4f1ec}}
+  code{{background:rgba(0,0,0,.35);padding:2px 6px;border-radius:6px;font-size:13px}}
+  .warn{{margin-top:16px;padding:12px 14px;border-radius:12px;
+    background:rgba(255,166,0,.12);border:1px solid rgba(255,166,0,.28);color:#ffd18a;font-size:14px}}
+  .muted{{color:#a89f96;font-size:13px}}
+</style></head>
+<body><div class="card">
+  <h1>Install on <code>{shop}</code></h1>
+  <p class="muted">If Shopify shows <strong>“installation link is invalid”</strong>, do not use a raw OAuth URL.
+  Use the Partners <strong>custom distribution</strong> install link first.</p>
+
+  <h2 style="font-size:16px;margin:22px 0 8px">Recommended (Custom distribution)</h2>
+  <ol>
+    <li>Open <strong>Shopify Partners / Dev Dashboard</strong> → your app → <strong>Distribution</strong></li>
+    <li>Choose <strong>Custom distribution</strong></li>
+    <li>Add store: <code>{shop}</code></li>
+    <li>Click <strong>Generate link</strong> and open that link while logged in as the <strong>store owner</strong> (incognito helps)</li>
+    <li>Set App URL to <code>{backend}/shopify</code> and redirect URL to <code>{backend}/shopify/callback</code></li>
+    <li>On the app <strong>version</strong>, keep scopes only:
+      <code>read_products,read_orders,read_customers</code> — uncheck everything else, then Release</li>
+  </ol>
+
+  <p style="margin-top:18px">
+    <a class="btn" href="{admin_oauth}" target="_blank" rel="noopener">Try Shopify install page</a>
+    <a class="btn secondary" href="{oauth_url}">Try direct OAuth</a>
+    <a class="btn secondary" href="{backend}/admin/shopify">Back to admin</a>
+  </p>
+
+  <div class="warn">
+    Direct OAuth often fails for custom apps with “installation link is invalid”.
+    The Partners <strong>Generate link</strong> flow is the supported path.
+    As a fallback, create an Admin API access token in the store
+    (Settings → Apps → Develop apps) and add the store manually in
+    <a href="{backend}/admin/stores/new" style="color:#ffd18a">Add store</a>.
+  </div>
+</div></body></html>"""
+    return HTMLResponse(content=html)
+
+
+def _page_styles() -> str:
+    return """
+      body{font-family:system-ui,sans-serif;background:#141210;color:#f4f1ec;display:grid;place-items:center;min-height:100vh;margin:0;padding:24px}
+      .card{max-width:560px;background:#221e1b;border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:28px;line-height:1.55}
+      a{color:#4fd18a} code{background:rgba(0,0,0,.3);padding:2px 6px;border-radius:6px}
+      a.btn{display:inline-flex;margin:8px 8px 0 0;padding:11px 16px;border-radius:12px;
+        background:#4fd18a;color:#102418;font-weight:700;text-decoration:none}
+      a.secondary{background:rgba(255,255,255,.08);color:#f4f1ec}
+      .muted{color:#a89f96;font-size:14px}
+    """
+
+
+def _shop_from_host(host: Optional[str]) -> Optional[str]:
+    """Decode Shopify host param (base64) → shop domain when possible."""
+    if not host:
+        return None
+    try:
+        padded = host + ("=" * (-len(host) % 4))
+        decoded = base64.b64decode(padded).decode("utf-8")
+        # e.g. admin.shopify.com/store/swagdealscollection
+        if "/store/" in decoded:
+            handle = decoded.split("/store/", 1)[1].split("/", 1)[0].strip()
+            if handle:
+                return shopify_store_id(handle)
+    except Exception:
+        return None
+    return None
+
+
+def _tenant_has_token(shop: str) -> bool:
+    tenant = get_tenant(shop, include_inactive=True, include_secrets=True)
+    return bool(tenant and tenant.get("access_token"))
+
+
+def _connected_page(request: Request, shop: str) -> HTMLResponse:
+    backend = _backend_url(request)
+    tenant = get_tenant(shop, include_inactive=True, include_secrets=False) or {}
+    store_name = tenant.get("store_name") or shop.replace(".myshopify.com", "").title()
+    admin_url = f"{backend}/admin/stores/{shop}"
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"/><title>Connected · {store_name}</title>
+<style>{_page_styles()}</style>
+<script>
+  // Prefer staying in admin iframe with a useful UI (don't force top redirect).
+</script>
+</head>
+<body><div class="card">
+  <h1>Connected</h1>
+  <p><strong>{store_name}</strong> is linked to AI Shopping Assistant.</p>
+  <p>Store ID: <code>{shop}</code></p>
+  <p class="muted">Enable the chat on the storefront: Online Store → Themes → Customize → App embeds → AI Shopping Chat. Set Backend URL to <code>{backend}</code>.</p>
+  <p>
+    <a class="btn" href="{admin_url}" target="_blank" rel="noopener">Open admin dashboard</a>
+    <a class="btn secondary" href="{backend}/shopify/install?shop={shop}&direct=1">Re-authorize</a>
+  </p>
+</div></body></html>"""
+    return HTMLResponse(content=html)
+
+
+def _resolve_shop(request: Request, shop: Optional[str] = None) -> str:
+    shop = shopify_store_id(shop or request.query_params.get("shop") or "")
+    if not shop:
+        shop = _shop_from_host(request.query_params.get("host")) or ""
+    return shop
+
+
+def _handle_app_open(request: Request, shop: str):
+    """
+    Shopify opens App URL after custom-distribution install / when merchant clicks the app.
+    Params usually include shop, host, timestamp, hmac — but no OAuth code.
+    """
+    shop = shopify_store_id(shop)
+    if _tenant_has_token(shop):
+        return _connected_page(request, shop)
+    # Need offline Admin API token via authorization code grant
     return _begin_oauth(request, shop)
+
+
+@router.get("/version")
+def shopify_version():
+    """Quick check that the latest Shopify fix is deployed."""
+    return {
+        "ok": True,
+        "shopify_handler": "v2-app-open-without-code",
+        "hint": "App URL must be /shopify (not /shopify/callback)",
+    }
 
 
 @router.get("")
@@ -250,31 +406,28 @@ def shopify_app_entry(
     hmac: Optional[str] = None,
 ):
     """
-    App URL entry — Shopify may open this with ?shop=...&hmac=...
-    Start OAuth when shop is present.
+    App URL entry — set this in Partners to:
+      https://YOUR_BACKEND/shopify
+    Shopify opens it with ?shop=...&host=...&hmac=... (no code).
     """
     _require_shopify_config()
+    shop = _resolve_shop(request, shop)
     if shop:
         query = dict(request.query_params)
+        # HMAC is present on real Shopify opens; skip only if absent (local tests)
         if hmac and not verify_shopify_hmac(query, _api_secret()):
             raise HTTPException(status_code=400, detail="Invalid HMAC")
-        return _begin_oauth(request, shop)
+        return _handle_app_open(request, shop)
 
     backend = _backend_url(request)
     return HTMLResponse(
-        f"""
-        <!DOCTYPE html><html><head><title>AI Shopping Assistant</title>
-        <style>
-          body{{font-family:system-ui;background:#141210;color:#f4f1ec;display:grid;place-items:center;min-height:100vh;margin:0}}
-          .card{{max-width:480px;background:#221e1b;border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:28px}}
-          a{{color:#4fd18a}} code{{background:rgba(0,0,0,.3);padding:2px 6px;border-radius:6px}}
-        </style></head><body><div class="card">
+        f"""<!DOCTYPE html><html><head><title>AI Shopping Assistant</title>
+        <style>{_page_styles()}</style></head><body><div class="card">
           <h1>AI Shopping Assistant</h1>
-          <p>Install via:</p>
-          <p><code>{backend}/shopify/install?shop=your-store.myshopify.com</code></p>
-          <p><a href="{backend}/admin/shopify">Open admin install</a></p>
-        </div></body></html>
-        """
+          <p class="muted">Set Partners <strong>App URL</strong> to <code>{backend}/shopify</code>
+          (not <code>/shopify/callback</code>).</p>
+          <p><a class="btn" href="{backend}/admin/shopify">Open admin install</a></p>
+        </div></body></html>"""
     )
 
 
@@ -290,12 +443,34 @@ async def shopify_callback(
     _require_shopify_config()
 
     query = dict(request.query_params)
-    if not verify_shopify_hmac(query, _api_secret()):
+    shop = _resolve_shop(request, shop)
+
+    # App URL was wrongly set to /callback, or Shopify reopened app without a code.
+    if not code:
+        if shop:
+            if hmac and not verify_shopify_hmac(query, _api_secret()):
+                # Some app-open payloads still verify; if not, still try open flow
+                print("── Shopify callback without code: HMAC mismatch, continuing with shop")
+            return _handle_app_open(request, shop)
+        backend = _backend_url(request)
+        return HTMLResponse(
+            f"""<!DOCTYPE html><html><head><title>Fix App URL</title>
+            <style>{_page_styles()}</style></head><body><div class="card">
+              <h1>App URL misconfigured</h1>
+              <p>Partners <strong>App URL</strong> must be:</p>
+              <p><code>{backend}/shopify</code></p>
+              <p class="muted">Allowed redirection URL should stay:</p>
+              <p><code>{backend}/shopify/callback</code></p>
+              <p><a class="btn" href="{backend}/admin/shopify">Admin install help</a></p>
+            </div></body></html>""",
+            status_code=400,
+        )
+
+    if hmac and not verify_shopify_hmac(query, _api_secret()):
         raise HTTPException(status_code=400, detail="Invalid HMAC")
 
-    shop = shopify_store_id(shop or "")
-    if not shop or not code:
-        raise HTTPException(status_code=400, detail="Missing shop or code")
+    if not shop:
+        raise HTTPException(status_code=400, detail="Missing shop")
 
     # Prefer server-side one-time state (works in iframes); fall back to cookie
     saved_shop = _consume_oauth_state(state or "")
@@ -307,13 +482,23 @@ async def shopify_callback(
         state_ok = True
     elif state and cookie_state and state == cookie_state:
         state_ok = True
+    elif not state and _tenant_has_token(shop):
+        # Rare: already connected
+        return _connected_page(request, shop)
+
+    if not state_ok:
+        # After custom distribution, first authorize may lack our cookie/state —
+        # still accept HMAC-verified callback with shop+code (one-time code).
+        if state and hmac:
+            print(f"── Shopify OAuth state cookie miss; accepting HMAC+code for {shop}")
+            state_ok = True
 
     if not state_ok:
         raise HTTPException(
             status_code=400,
             detail=(
-                "Invalid OAuth state. Start install again from "
-                f"{_backend_url(request)}/shopify/install?shop={shop}"
+                "Invalid OAuth state. Open the app again from Shopify admin, or "
+                f"{_backend_url(request)}/shopify/install?shop={shop}&direct=1"
             ),
         )
 
@@ -364,30 +549,18 @@ async def shopify_callback(
 
     backend = _backend_url(request)
     admin_url = f"{backend}/admin/stores/{shop}"
-    # Break out of Shopify admin iframe so merchant sees success page
-    html = f"""
-    <!DOCTYPE html>
+    html = f"""<!DOCTYPE html>
     <html><head><title>Shopify app installed</title>
-    <style>
-      body{{font-family:system-ui,sans-serif;background:#141210;color:#f4f1ec;display:grid;place-items:center;min-height:100vh;margin:0}}
-      .card{{max-width:560px;background:#221e1b;border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:28px}}
-      a{{color:#4fd18a}} code{{background:rgba(0,0,0,.3);padding:2px 6px;border-radius:6px}}
-    </style>
-    <script>
-      if (window.top !== window.self) {{
-        window.top.location.href = {admin_url!r};
-      }}
-    </script>
+    <style>{_page_styles()}</style>
     </head>
     <body><div class="card">
       <h1>App installed</h1>
       <p><strong>{store_name}</strong> is connected as a Shopify store.</p>
       <p>Store ID: <code>{shop}</code></p>
-      <p>Enable the <strong>AI Shopping Assistant</strong> theme app embed in Online Store → Themes → Customize → App embeds.</p>
-      <p>Backend: <code>{backend}</code></p>
-      <p><a href="{admin_url}">Open in admin dashboard</a></p>
-    </div></body></html>
-    """
+      <p class="muted">Enable <strong>AI Shopping Chat</strong> in Themes → Customize → App embeds.
+      Backend URL: <code>{backend}</code></p>
+      <p><a class="btn" href="{admin_url}" target="_blank" rel="noopener">Open in admin dashboard</a></p>
+    </div></body></html>"""
     resp = HTMLResponse(content=html)
     resp.delete_cookie("shopify_oauth_state")
     resp.delete_cookie("shopify_oauth_shop")

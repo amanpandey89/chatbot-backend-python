@@ -282,10 +282,11 @@ def admin_shopify_install_page(request: Request):
     denied = _require_page_auth(request)
     if denied:
         return denied
+    backend = str(request.base_url).rstrip("/")
     return _render(
         request,
         "admin/shopify_install.html",
-        {"error": None, "active_nav": "shopify"},
+        {"error": None, "active_nav": "shopify", "backend_url": backend},
     )
 
 
