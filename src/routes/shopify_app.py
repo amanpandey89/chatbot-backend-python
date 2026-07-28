@@ -67,9 +67,61 @@ def _shop_handle(shop: str) -> str:
 
 
 def _oauth_authorize_url(shop: str, params: dict) -> str:
-    """Prefer admin.shopify.com — *.myshopify.com/admin/oauth often shows store-down page."""
+    """
+    Use Unified Admin OAuth URL.
+    Correct form (note /admin/ before oauth):
+      https://admin.shopify.com/store/{handle}/admin/oauth/authorize?...
+    The older *.myshopify.com/admin/oauth/authorize often shows a false
+    "store will be right back" page; /store/{handle}/oauth/authorize (no /admin/)
+    returns "installation link is invalid".
+    """
     handle = _shop_handle(shop)
-    return f"https://admin.shopify.com/store/{handle}/oauth/authorize?{urlencode(params)}"
+    mode = (os.getenv("SHOPIFY_OAUTH_MODE") or "admin").strip().lower()
+    if mode in ("legacy", "myshopify"):
+        return f"https://{shopify_store_id(shop)}/admin/oauth/authorize?{urlencode(params)}"
+    return (
+        f"https://admin.shopify.com/store/{handle}/admin/oauth/authorize"
+        f"?{urlencode(params)}"
+    )
+
+
+def _install_bounce_html(authorize_url: str, shop: str, backend: str) -> str:
+    """Top-level redirect page so OAuth is not trapped in a Shopify iframe."""
+    return f"""<!DOCTYPE html>
+<html><head>
+  <meta charset="utf-8"/>
+  <title>Connecting Shopify…</title>
+  <meta http-equiv="refresh" content="0;url={authorize_url}">
+  <style>
+    body{{font-family:system-ui,sans-serif;background:#141210;color:#f4f1ec;
+      display:grid;place-items:center;min-height:100vh;margin:0}}
+    .card{{max-width:520px;background:#221e1b;border:1px solid rgba(255,255,255,.08);
+      border-radius:18px;padding:28px;line-height:1.5}}
+    a{{color:#4fd18a}} code{{background:rgba(0,0,0,.3);padding:2px 6px;border-radius:6px}}
+  </style>
+  <script>
+    (function () {{
+      var url = {authorize_url!r};
+      try {{
+        if (window.top && window.top !== window.self) {{
+          window.top.location.href = url;
+          return;
+        }}
+      }} catch (e) {{}}
+      window.location.replace(url);
+    }})();
+  </script>
+</head>
+<body>
+  <div class="card">
+    <h1>Continue to Shopify</h1>
+    <p>Connecting <code>{shop}</code>…</p>
+    <p>If nothing happens, <a href="{authorize_url}">click here to approve the app</a>.</p>
+    <p style="color:#a89f96;font-size:13px">Wrong shop? Use
+      <code>{backend}/shopify/install?shop=your-store.myshopify.com</code>
+    </p>
+  </div>
+</body></html>"""
 
 
 def _ensure_oauth_table():
@@ -141,7 +193,7 @@ def verify_webhook_hmac(raw_body: bytes, hmac_header: str, secret: str) -> bool:
     return hmac.compare_digest(computed, hmac_header or "")
 
 
-def _begin_oauth(request: Request, shop: str) -> RedirectResponse:
+def _begin_oauth(request: Request, shop: str):
     shop = shopify_store_id(shop)
     if not shop.endswith(".myshopify.com"):
         raise HTTPException(status_code=400, detail="Invalid shop domain")
@@ -149,7 +201,8 @@ def _begin_oauth(request: Request, shop: str) -> RedirectResponse:
     state = secrets.token_urlsafe(24)
     _save_oauth_state(state, shop)
 
-    redirect_uri = f"{_backend_url(request)}/shopify/callback"
+    backend = _backend_url(request)
+    redirect_uri = f"{backend}/shopify/callback"
     params = {
         "client_id": _api_key(),
         "scope": _scopes(),
@@ -158,9 +211,8 @@ def _begin_oauth(request: Request, shop: str) -> RedirectResponse:
     }
     url = _oauth_authorize_url(shop, params)
 
-    resp = RedirectResponse(url=url, status_code=302)
-    # Best-effort cookies (may be blocked in iframes; server state is source of truth)
-    secure = _backend_url(request).startswith("https")
+    resp = HTMLResponse(content=_install_bounce_html(url, shop, backend))
+    secure = backend.startswith("https")
     resp.set_cookie(
         "shopify_oauth_state",
         state,
