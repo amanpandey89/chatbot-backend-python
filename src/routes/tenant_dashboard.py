@@ -15,6 +15,9 @@ from src.services.tenant_auth import (
     clear_tenant_cookie,
     ensure_tenant_api_key,
     verify_tenant_api_key,
+    create_tenant_session_token,
+    app_url_with_session,
+    get_store_id_from_request,
 )
 from src.knowledge import SOURCE_TYPES, overview_stats, list_logs, get_rag_settings, update_rag_settings
 from src.knowledge.ingest import list_sources, delete_source, upsert_and_index_async_prep, index_source_async
@@ -35,6 +38,22 @@ def _fmt(ts: Optional[float]) -> str:
 
 
 def _render(request: Request, name: str, ctx: dict, status_code: int = 200):
+    store_id = ctx.get("store_id") or ""
+    if store_id and "session_token" not in ctx:
+        # Prefer existing valid session from request; else mint for nav links
+        existing = (
+            request.query_params.get("asa_session")
+            or request.cookies.get("asa_tenant_session")
+            or ""
+        )
+        from src.services.tenant_auth import _verify_token
+
+        if existing and _verify_token(existing) == store_id:
+            ctx["session_token"] = existing
+        elif require_tenant(request, expected_store_id=store_id):
+            ctx["session_token"] = create_tenant_session_token(store_id)
+        else:
+            ctx["session_token"] = ""
     return templates.TemplateResponse(request, name, ctx, status_code=status_code)
 
 
@@ -48,6 +67,18 @@ def _require(request: Request, store_id: str):
     return None
 
 
+def _authed_redirect(store_id: str, path: str = "", request: Optional[Request] = None):
+    resp = RedirectResponse(url=app_url_with_session(store_id, path), status_code=303)
+    set_tenant_cookie(resp, store_id, request=request)
+    return resp
+
+
+def _flash_redirect(store_id: str, path: str, message: str, request: Optional[Request] = None):
+    resp = _authed_redirect(store_id, path, request=request)
+    resp.set_cookie("asa_tenant_flash", message, max_age=8, path="/")
+    return resp
+
+
 @router.get("/login", response_class=HTMLResponse)
 def app_login_picker(request: Request):
     return _render(request, "tenant/login.html", {"store_id": "", "error": None})
@@ -55,8 +86,18 @@ def app_login_picker(request: Request):
 
 @router.get("/{store_id}/login", response_class=HTMLResponse)
 def app_login_page(request: Request, store_id: str):
+    # Already authenticated (cookie or asa_session) → dashboard
+    if require_tenant(request, expected_store_id=store_id):
+        return _authed_redirect(store_id, request=request)
+    # Ensure a key exists so merchants can log in after Shopify install
+    try:
+        ensure_tenant_api_key(store_id)
+    except Exception:
+        pass
     return _render(
-        request, "tenant/login.html", {"store_id": store_id, "error": None}
+        request,
+        "tenant/login.html",
+        {"store_id": store_id, "error": None, "session_token": ""},
     )
 
 
@@ -71,42 +112,55 @@ def app_login(
         return _render(
             request,
             "tenant/login.html",
-            {"store_id": store_id, "error": "Store not found or inactive."},
+            {
+                "store_id": store_id,
+                "error": "Store not found or inactive.",
+                "session_token": "",
+            },
             status_code=404,
         )
-    # Bootstrap: if no key yet, first login with empty is not allowed —
-    # Shopify OAuth path sets cookie. Allow create-if-matches after ensure? 
-    # For first-time API users: if no key exists, reject until they open from Shopify once.
-    from src.services.store import get_tenant as gt
 
-    tenant = gt(store_id, include_inactive=False, include_secrets=True) or {}
+    tenant = get_tenant(store_id, include_inactive=False, include_secrets=True) or {}
     if not tenant.get("tenant_api_key"):
-        # Generate key only if they somehow know a placeholder — instead generate and show after Shopify
+        try:
+            ensure_tenant_api_key(store_id)
+            tenant = (
+                get_tenant(store_id, include_inactive=False, include_secrets=True) or {}
+            )
+        except Exception:
+            pass
+
+    key = (tenant_api_key or "").strip()
+    if not key:
         return _render(
             request,
             "tenant/login.html",
             {
                 "store_id": store_id,
-                "error": "No API key yet. Open the app from Shopify admin once, then copy the key from Settings.",
+                "error": "Enter your Tenant API key (from Admin → store detail).",
+                "session_token": "",
             },
             status_code=400,
         )
-    if not verify_tenant_api_key(store_id, tenant_api_key.strip()):
+
+    if not verify_tenant_api_key(store_id, key):
         return _render(
             request,
             "tenant/login.html",
-            {"store_id": store_id, "error": "Invalid API key."},
+            {
+                "store_id": store_id,
+                "error": "Invalid API key. Copy the Tenant API key from backend Admin → Stores → this shop.",
+                "session_token": "",
+            },
             status_code=401,
         )
-    resp = RedirectResponse(url=f"/app/{store_id}", status_code=303)
-    set_tenant_cookie(resp, store_id)
-    return resp
+    return _authed_redirect(store_id, request=request)
 
 
 @router.post("/{store_id}/logout")
-def app_logout(store_id: str):
+def app_logout(request: Request, store_id: str):
     resp = RedirectResponse(url=f"/app/{store_id}/login", status_code=303)
-    clear_tenant_cookie(resp)
+    clear_tenant_cookie(resp, request=request)
     return resp
 
 
@@ -164,7 +218,7 @@ def app_chat_detail(request: Request, store_id: str, session_id: str):
     tenant = get_tenant(store_id, include_secrets=False)
     detail = get_session_detail(session_id, store_id=store_id)
     if not detail:
-        return RedirectResponse(url=f"/app/{store_id}/chats", status_code=303)
+        return _authed_redirect(store_id, "chats")
     return _render(
         request,
         "tenant/chat_detail.html",
@@ -218,9 +272,7 @@ def app_train_settings(
     if denied:
         return denied
     training_svc.update_tenant_settings(store_id, tone=tone, instructions=instructions)
-    resp = RedirectResponse(url=f"/app/{store_id}/train", status_code=303)
-    resp.set_cookie("asa_tenant_flash", "Training settings saved.", max_age=6)
-    return resp
+    return _flash_redirect(store_id, "train", "Training settings saved.")
 
 
 @router.post("/{store_id}/train/knowledge")
@@ -255,9 +307,7 @@ async def app_train_add(
             )
         except Exception as e:
             print(f"RAG index failed: {e}")
-    resp = RedirectResponse(url=f"/app/{store_id}/train", status_code=303)
-    resp.set_cookie("asa_tenant_flash", "Knowledge added and indexed.", max_age=6)
-    return resp
+    return _flash_redirect(store_id, "train", "Knowledge added and indexed.")
 
 
 @router.post("/{store_id}/train/knowledge/{entry_id}/delete")
@@ -266,9 +316,7 @@ def app_train_delete(request: Request, store_id: str, entry_id: str):
     if denied:
         return denied
     training_svc.delete_knowledge(store_id, entry_id)
-    resp = RedirectResponse(url=f"/app/{store_id}/train", status_code=303)
-    resp.set_cookie("asa_tenant_flash", "Entry deleted.", max_age=6)
-    return resp
+    return _flash_redirect(store_id, "train", "Entry deleted.")
 
 
 @router.get("/{store_id}/train/sources", response_class=HTMLResponse)
@@ -305,9 +353,7 @@ def app_train_source_delete(request: Request, store_id: str, source_id: str):
     if denied:
         return denied
     delete_source(store_id, source_id)
-    resp = RedirectResponse(url=f"/app/{store_id}/train/sources", status_code=303)
-    resp.set_cookie("asa_tenant_flash", "Source deleted.", max_age=6)
-    return resp
+    return _flash_redirect(store_id, "train/sources", "Source deleted.")
 
 
 @router.post("/{store_id}/train/documents")
@@ -318,9 +364,7 @@ async def app_train_documents(request: Request, store_id: str):
     form = await request.form()
     upload = form.get("file")
     if not upload or not hasattr(upload, "read"):
-        resp = RedirectResponse(url=f"/app/{store_id}/train/sources", status_code=303)
-        resp.set_cookie("asa_tenant_flash", "No file uploaded.", max_age=6)
-        return resp
+        return _flash_redirect(store_id, "train/sources", "No file uploaded.")
     raw = await upload.read()
     name = getattr(upload, "filename", None) or "document.txt"
     text = raw.decode("utf-8", errors="ignore")
@@ -334,9 +378,7 @@ async def app_train_documents(request: Request, store_id: str):
     )
     if not prep.get("skipped"):
         await index_source_async(store_id, prep["source_id"], text=prep["text"], title=name)
-    resp = RedirectResponse(url=f"/app/{store_id}/train/sources", status_code=303)
-    resp.set_cookie("asa_tenant_flash", "Document indexed.", max_age=6)
-    return resp
+    return _flash_redirect(store_id, "train/sources", "Document indexed.")
 
 
 @router.post("/{store_id}/train/exclusions")
@@ -351,9 +393,7 @@ def app_train_exclusion_add(
     if denied:
         return denied
     add_exclusion(store_id, match_type, match_value, reason)
-    resp = RedirectResponse(url=f"/app/{store_id}/train/sources", status_code=303)
-    resp.set_cookie("asa_tenant_flash", "Exclusion added.", max_age=6)
-    return resp
+    return _flash_redirect(store_id, "train/sources", "Exclusion added.")
 
 
 @router.post("/{store_id}/train/exclusions/{exclusion_id}/delete")
@@ -362,9 +402,7 @@ def app_train_exclusion_del(request: Request, store_id: str, exclusion_id: str):
     if denied:
         return denied
     delete_exclusion(store_id, exclusion_id)
-    resp = RedirectResponse(url=f"/app/{store_id}/train/sources", status_code=303)
-    resp.set_cookie("asa_tenant_flash", "Exclusion removed.", max_age=6)
-    return resp
+    return _flash_redirect(store_id, "train/sources", "Exclusion removed.")
 
 
 @router.get("/{store_id}/train/sync", response_class=HTMLResponse)
@@ -402,13 +440,7 @@ async def app_train_sync_shopify(request: Request, store_id: str):
     job = create_job(store_id, "shopify_full_sync")
     items = await collect_shopify_knowledge(tenant)
     await run_job(store_id, job["id"], items)
-    resp = RedirectResponse(url=f"/app/{store_id}/train/sync", status_code=303)
-    resp.set_cookie(
-        "asa_tenant_flash",
-        f"Shopify sync finished ({len(items)} items).",
-        max_age=8,
-    )
-    return resp
+    return _flash_redirect(store_id, "train/sync", f"Shopify sync finished ({len(items)} items).")
 
 
 @router.post("/{store_id}/train/sync/rebuild")
@@ -417,9 +449,7 @@ async def app_train_sync_rebuild(request: Request, store_id: str):
     if denied:
         return denied
     await rebuild_embeddings(store_id)
-    resp = RedirectResponse(url=f"/app/{store_id}/train/sync", status_code=303)
-    resp.set_cookie("asa_tenant_flash", "Embeddings rebuilt.", max_age=8)
-    return resp
+    return _flash_redirect(store_id, "train/sync", "Embeddings rebuilt.")
 
 
 @router.post("/{store_id}/train/sync/crawl")
@@ -434,11 +464,7 @@ async def app_train_sync_crawl(
     job = create_job(store_id, "website_crawl")
     items = await crawl_urls(seeds)
     await run_job(store_id, job["id"], items)
-    resp = RedirectResponse(url=f"/app/{store_id}/train/sync", status_code=303)
-    resp.set_cookie(
-        "asa_tenant_flash", f"Crawl finished ({len(items)} pages).", max_age=8
-    )
-    return resp
+    return _flash_redirect(store_id, "train/sync", f"Crawl finished ({len(items)} pages).")
 
 
 @router.get("/{store_id}/train/search", response_class=HTMLResponse)

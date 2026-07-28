@@ -356,21 +356,25 @@ def _tenant_has_token(shop: str) -> bool:
 
 
 def _connected_page(request: Request, shop: str) -> HTMLResponse:
-    from src.services.tenant_auth import set_tenant_cookie, ensure_tenant_api_key
+    from src.services.tenant_auth import (
+        set_tenant_cookie,
+        ensure_tenant_api_key,
+        app_url_with_session,
+    )
 
     backend = _backend_url(request)
     tenant = get_tenant(shop, include_inactive=True, include_secrets=False) or {}
     store_name = tenant.get("store_name") or shop.replace(".myshopify.com", "").title()
-    dash_url = f"{backend}/app/{shop}"
     try:
         ensure_tenant_api_key(shop)
     except Exception as e:
         print(f"tenant api key bootstrap skipped: {e}")
 
-    # Prefer merchant dashboard over static connected card
+    # Session in URL — required for Shopify admin iframe (third-party cookies blocked)
+    dash_path = app_url_with_session(shop)
+    dash_url = f"{backend}{dash_path}"
     resp = RedirectResponse(url=dash_url, status_code=302)
-    set_tenant_cookie(resp, shop)
-    # Fallback HTML if redirect blocked in some embeds
+    set_tenant_cookie(resp, shop, request=request)
     resp.headers["Refresh"] = f"0;url={dash_url}"
     return resp
 

@@ -209,10 +209,12 @@ def build_system_prompt(
     - Prefer helping inside this chat first; share the orders page link as a useful option, not a brush-off.
     - FORMATTING (important for chat readability):
       - Use real line breaks between sentences/sections.
+      - You may use light Markdown: **bold**, bullet lists with "- ", and numbered lists.
       - Put each numbered step on its own line, like:
         1. First step
         2. Second step
         3. Third step
+      - For product overviews, use short bullets instead of one long paragraph.
       - For order status, prefer a short structured layout, e.g.:
         I found your order #119!
 
