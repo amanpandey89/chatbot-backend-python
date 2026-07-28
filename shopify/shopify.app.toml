@@ -1,9 +1,6 @@
-# Shopify app config for CLI (`shopify app deploy` / `shopify app dev`).
-# Create the app in Partners, then fill client_id and update application_url.
-
 name = "AI Shopping Assistant"
 client_id = "YOUR_SHOPIFY_API_KEY"
-application_url = "https://YOUR_BACKEND_URL"
+application_url = "https://YOUR_BACKEND_URL/shopify"
 embedded = false
 
 [access_scopes]

@@ -26,13 +26,20 @@ SHOPIFY_SCOPES=read_products,read_orders,read_customers
 
 ## Install a store
 
-Open:
+1. Uninstall the app from Shopify if a previous attempt failed (Apps → AI Shopping Assistant → uninstall).
+2. Open this URL in a **normal browser tab** (not inside Shopify admin):
 
 ```
 https://YOUR_BACKEND_URL/shopify/install?shop=your-store.myshopify.com
 ```
 
 Or use **Admin → Install Shopify**. After OAuth, the shop is registered as a tenant (`platform: shopify`, store id = `your-store.myshopify.com`).
+
+OAuth uses `admin.shopify.com` (not `*.myshopify.com/admin/oauth`) and stores `state` server-side so iframe/cookie issues don’t break install.
+
+In Partners, set:
+- **App URL**: `https://YOUR_BACKEND_URL/shopify`
+- **Allowed redirection URL(s)**: `https://YOUR_BACKEND_URL/shopify/callback`
 
 ## Deploy the theme extension
 
