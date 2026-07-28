@@ -1,0 +1,47 @@
+{% extends "tenant/base.html" %}
+{% block title %}Overview{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Overview</h1>
+    <p class="mono muted">{{ store_id }}</p>
+  </div>
+  <a class="btn" href="/app/{{ store_id }}/train">Train AI</a>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <div class="stat-label">Recent chats</div>
+    <div class="stat-value">{{ sessions|length }}</div>
+  </div>
+  <div class="card">
+    <div class="stat-label">Knowledge entries</div>
+    <div class="stat-value">{{ knowledge_count }}</div>
+  </div>
+  <div class="card">
+    <div class="stat-label">Platform</div>
+    <div class="stat-value" style="font-size:18px;margin-top:10px;"><span class="pill">{{ tenant.platform }}</span></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin:0 0 12px;font-size:16px;">Latest conversations</h2>
+  {% if sessions %}
+  <table>
+    <thead><tr><th>Preview</th><th>Messages</th><th>Updated</th><th></th></tr></thead>
+    <tbody>
+      {% for s in sessions %}
+      <tr>
+        <td>{{ s.preview or '—' }}</td>
+        <td>{{ s.message_count }}</td>
+        <td class="muted">{{ fmt(s.updated_at) }}</td>
+        <td><a class="btn small secondary" href="/app/{{ store_id }}/chats/{{ s.session_id }}">Open</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No chats yet. When customers use the widget, sessions appear here.</p>
+  {% endif %}
+</div>
+{% endblock %}

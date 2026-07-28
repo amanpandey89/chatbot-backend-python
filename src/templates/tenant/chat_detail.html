@@ -1,0 +1,21 @@
+{% extends "tenant/base.html" %}
+{% block title %}Chat{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Conversation</h1>
+    <p class="mono muted">{{ session.session_id }} · {{ fmt(session.updated_at) }}</p>
+  </div>
+  <a class="btn secondary" href="/app/{{ store_id }}/chats">Back</a>
+</div>
+<div class="card chat-thread">
+  {% for m in session.messages %}
+    <div class="bubble {{ m.role if m.role in ['user','assistant'] else 'assistant' }}">
+      <div class="muted" style="font-size:11px;margin-bottom:4px;">{{ m.role }}</div>
+      {{ m.content }}
+    </div>
+  {% else %}
+    <p class="muted">No messages in this session.</p>
+  {% endfor %}
+</div>
+{% endblock %}

@@ -7,6 +7,7 @@
     <p class="mono muted">{{ store.store_id }}</p>
   </div>
   <div class="actions">
+    <a class="btn secondary" href="/app/{{ store.store_id }}" target="_blank">Merchant dashboard</a>
     <form class="inline" method="post" action="/admin/stores/{{ store.store_id }}/toggle">
       {% if store.active %}
         <button class="btn secondary" type="submit">Disable</button>
@@ -34,11 +35,15 @@
       {% endif %}
     </div>
     <div>Sessions</div><div>{{ session_count }}</div>
+    <div>Tenant API key</div><div class="mono">{{ tenant_api_key or '—' }}</div>
     <div>Consumer key</div><div class="mono">{{ store.consumer_key or '—' }}</div>
     <div>Consumer secret</div><div class="mono">{{ store.consumer_secret or '—' }}</div>
     <div>Access token</div><div class="mono">{{ store.access_token or '—' }}</div>
     <div>Updated</div><div class="muted">{{ updated_label }}</div>
   </div>
+  {% if store.platform != 'shopify' %}
+  <p class="muted" style="margin:14px 0 0;">Paste the Tenant API key into <strong>WP Admin → AI Assistant → Tenant API key</strong>, then use <strong>Train AI</strong>.</p>
+  {% endif %}
 </div>
 
 <div class="card section">
@@ -47,7 +52,7 @@
     <p class="muted">After OAuth, enable the theme app embed: Themes → Customize → App embeds → <strong>AI Shopping Chat</strong>. Set Backend URL to this server.</p>
     <p class="muted">Manual script fallback:</p>
   {% else %}
-    <p class="muted">For manual embeds (WordPress plugin preferred when available):</p>
+    <p class="muted">For WordPress: install the plugin, set Backend URL, Store ID, and Tenant API key above.</p>
   {% endif %}
   <pre class="mono" style="white-space:pre-wrap;background:rgba(0,0,0,.25);padding:14px;border-radius:12px;border:1px solid var(--border);">{{ embed_snippet }}</pre>
 </div>

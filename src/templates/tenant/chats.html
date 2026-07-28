@@ -1,0 +1,29 @@
+{% extends "tenant/base.html" %}
+{% block title %}Chats{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Chats</h1>
+    <p>Manage customer conversations for this store.</p>
+  </div>
+</div>
+<div class="card">
+  {% if sessions %}
+  <table>
+    <thead><tr><th>Preview</th><th>Messages</th><th>Updated</th><th></th></tr></thead>
+    <tbody>
+      {% for s in sessions %}
+      <tr>
+        <td>{{ s.preview or '—' }}</td>
+        <td>{{ s.message_count }}</td>
+        <td class="muted">{{ fmt(s.updated_at) }}</td>
+        <td><a class="btn small secondary" href="/app/{{ store_id }}/chats/{{ s.session_id }}">Open</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No chat sessions yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -123,6 +123,7 @@ def _row_to_tenant(row, include_secrets: bool = True) -> dict:
             "access_token",
             "api_key",
             "api_secret",
+            "tenant_api_key",
         ):
             if key in flat and flat[key]:
                 val = str(flat[key])
@@ -459,3 +460,62 @@ def get_all_sessions() -> dict:
     for row in rows:
         result[row[0]] = _row_to_session(row[1:])
     return result
+
+
+def list_sessions_for_store(store_id: str, limit: int = 50) -> list:
+    """Recent chat sessions for a tenant (for merchant dashboard)."""
+    with _lock:
+        with _conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT session_id, store_id, messages, answers, user_context, updated_at
+                FROM sessions
+                WHERE store_id = ?
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (store_id, max(1, min(limit, 200))),
+            ).fetchall()
+    out = []
+    for row in rows:
+        messages = json.loads(row[2] or "[]")
+        preview = ""
+        for m in reversed(messages):
+            if m.get("role") == "user" and (m.get("content") or "").strip():
+                preview = (m.get("content") or "").strip()[:120]
+                break
+        out.append(
+            {
+                "session_id": row[0],
+                "store_id": row[1],
+                "message_count": len(messages),
+                "preview": preview,
+                "updated_at": row[5],
+                "user_context": json.loads(row[4] or "{}"),
+            }
+        )
+    return out
+
+
+def get_session_detail(session_id: str, store_id: Optional[str] = None) -> Optional[dict]:
+    with _lock:
+        with _conn() as conn:
+            row = conn.execute(
+                """
+                SELECT session_id, store_id, messages, answers, user_context, updated_at
+                FROM sessions WHERE session_id = ?
+                """,
+                (session_id,),
+            ).fetchone()
+    if not row:
+        return None
+    if store_id and row[1] != store_id:
+        return None
+    return {
+        "session_id": row[0],
+        "store_id": row[1],
+        "messages": json.loads(row[2] or "[]"),
+        "answers": json.loads(row[3] or "{}"),
+        "user_context": json.loads(row[4] or "{}"),
+        "updated_at": row[5],
+    }
