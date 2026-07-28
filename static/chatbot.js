@@ -703,21 +703,6 @@
         sessionId = data.session_id;
         if (data.currency_symbol) currencySymbol = data.currency_symbol;
         addMessage(data.greeting, 'bot');
-
-        const proactiveOn = window.CB_PROACTIVE_RECS !== false;
-        if (
-          proactiveOn &&
-          data.recommendations &&
-          data.recommendations.type === 'recommendations' &&
-          Array.isArray(data.recommendations.products) &&
-          data.recommendations.products.length
-        ) {
-          addProductCards(
-            data.recommendations.message || 'Here are some picks for you:',
-            data.recommendations.products
-          );
-        }
-
         showQuickReplies();
         sendBtn.disabled = false; // enable send now that session exists
       } else {
