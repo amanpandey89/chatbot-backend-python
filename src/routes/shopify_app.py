@@ -388,6 +388,16 @@ def _handle_app_open(request: Request, shop: str):
     return _begin_oauth(request, shop)
 
 
+@router.get("/version")
+def shopify_version():
+    """Quick check that the latest Shopify fix is deployed."""
+    return {
+        "ok": True,
+        "shopify_handler": "v2-app-open-without-code",
+        "hint": "App URL must be /shopify (not /shopify/callback)",
+    }
+
+
 @router.get("")
 @router.get("/")
 def shopify_app_entry(
