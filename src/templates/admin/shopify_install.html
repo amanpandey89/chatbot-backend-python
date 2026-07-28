@@ -4,28 +4,50 @@
 <div class="page-head">
   <div>
     <h1>Install Shopify app</h1>
-    <p>Start OAuth for a development or production store. Requires <code>SHOPIFY_API_KEY</code>, <code>SHOPIFY_API_SECRET</code>, and <code>APP_URL</code>.</p>
+    <p>Custom Shopify apps must be installed via Partners distribution (or a store Admin API token). Requires <code>SHOPIFY_API_KEY</code>, <code>SHOPIFY_API_SECRET</code>, and <code>APP_URL</code>.</p>
   </div>
 </div>
 
 {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
 
-<div class="card" style="max-width:640px;">
+<div class="card" style="max-width:720px;">
+  <h2 style="margin-top:0;font-size:18px;">1. Partners checklist (fixes “installation link is invalid”)</h2>
+  <ol class="muted" style="line-height:1.7;padding-left:18px;">
+    <li>App → <strong>Distribution</strong> → <strong>Custom distribution</strong></li>
+    <li>Add the store domain, e.g. <code>swagdealscollection.myshopify.com</code></li>
+    <li>Click <strong>Generate link</strong> and open it as the <strong>store owner</strong> (try incognito)</li>
+    <li><strong>App URL</strong> = <code>{{ backend_url }}/shopify</code></li>
+    <li><strong>Allowed redirection URL(s)</strong> = <code>{{ backend_url }}/shopify/callback</code></li>
+    <li>App version scopes: only <code>read_products</code>, <code>read_orders</code>, <code>read_customers</code> — uncheck all other scopes, then <strong>Release</strong></li>
+  </ol>
+</div>
+
+<div class="card section" style="max-width:720px;">
+  <h2 style="margin-top:0;font-size:18px;">2. Open install helper</h2>
   <form method="get" action="/shopify/install">
     <label for="shop">Shop domain</label>
-    <input id="shop" name="shop" required placeholder="your-store.myshopify.com" />
-    <p class="muted" style="margin-top:8px;font-size:13px;">You can also enter just the store handle (e.g. <code>your-store</code>).</p>
-    <button class="btn" type="submit" style="margin-top:16px;">Continue to Shopify</button>
+    <input id="shop" name="shop" required placeholder="swagdealscollection.myshopify.com" value="swagdealscollection.myshopify.com" />
+    <p class="muted" style="margin-top:8px;font-size:13px;">Opens a guide with Partners steps + optional direct OAuth.</p>
+    <button class="btn" type="submit" style="margin-top:16px;">Continue</button>
   </form>
 </div>
 
-<div class="card section" style="max-width:640px;">
-  <h2 style="margin-top:0;font-size:18px;">After install</h2>
+<div class="card section" style="max-width:720px;">
+  <h2 style="margin-top:0;font-size:18px;">3. Fallback — manual Admin API token</h2>
   <ol class="muted" style="line-height:1.7;padding-left:18px;">
-    <li>Store appears under <a class="link-accent" href="/admin/stores?platform=shopify">Stores → Shopify</a></li>
-    <li>Deploy the theme extension from <code>shopify/</code> (<code>shopify app deploy</code>)</li>
+    <li>In Shopify admin: <strong>Settings → Apps and sales channels → Develop apps → Create an app</strong></li>
+    <li>Configure Admin API scopes: <code>read_products</code>, <code>read_orders</code>, <code>read_customers</code></li>
+    <li>Install the app and copy the <strong>Admin API access token</strong></li>
+    <li>Go to <a class="link-accent" href="/admin/stores/new">Add store</a> → Platform Shopify → paste shop domain + access token</li>
+  </ol>
+</div>
+
+<div class="card section" style="max-width:720px;">
+  <h2 style="margin-top:0;font-size:18px;">After the store is connected</h2>
+  <ol class="muted" style="line-height:1.7;padding-left:18px;">
+    <li>Confirm it under <a class="link-accent" href="/admin/stores?platform=shopify">Stores → Shopify</a></li>
+    <li>Deploy theme extension from <code>shopify/</code></li>
     <li>Enable <strong>AI Shopping Chat</strong> in Themes → Customize → App embeds</li>
-    <li>Set Backend URL to this server’s public HTTPS URL</li>
   </ol>
 </div>
 {% endblock %}
