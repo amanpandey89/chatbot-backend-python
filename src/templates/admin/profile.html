@@ -1,0 +1,49 @@
+{% extends "admin/base.html" %}
+{% block title %}Profile{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Profile</h1>
+    <p>Update your admin display name, username, and password.</p>
+  </div>
+</div>
+
+{% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+
+<div class="card" style="max-width:560px;">
+  <div class="profile-hero">
+    <img src="/static/logo.png" alt="" width="56" height="56" />
+    <div>
+      <div style="font-weight:700;font-size:18px;">{{ profile.display_name }}</div>
+      <div class="muted mono">@{{ profile.username }}</div>
+    </div>
+  </div>
+
+  <form method="post" action="/admin/profile">
+    <label for="display_name">Display name</label>
+    <input id="display_name" name="display_name" value="{{ profile.display_name }}" required maxlength="80" />
+
+    <label for="username">Username</label>
+    <input id="username" name="username" value="{{ profile.username }}" required autocomplete="username" maxlength="64" />
+
+    <hr class="form-divider" />
+
+    <label for="current_password">Current password</label>
+    <input id="current_password" name="current_password" type="password" required autocomplete="current-password" />
+
+    <label for="new_password">New password <span class="muted">(optional)</span></label>
+    <input id="new_password" name="new_password" type="password" autocomplete="new-password" minlength="6" placeholder="Leave blank to keep current" />
+
+    <label for="confirm_password">Confirm new password</label>
+    <input id="confirm_password" name="confirm_password" type="password" autocomplete="new-password" placeholder="Leave blank to keep current" />
+
+    <button class="btn" type="submit">Save profile</button>
+  </form>
+
+  {% if profile.from_env %}
+  <p class="muted" style="margin:16px 0 0;font-size:13px;">
+    Currently using credentials from environment variables. Saving here stores them in the database for future logins.
+  </p>
+  {% endif %}
+</div>
+{% endblock %}

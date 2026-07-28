@@ -1,0 +1,59 @@
+{% extends "admin/base.html" %}
+{% block title %}Stores{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Stores</h1>
+    <p>All WordPress, Shopify, and Magento connections.</p>
+  </div>
+  <a class="btn" href="/admin/stores/new">Add store</a>
+</div>
+
+<div class="card" style="margin-bottom:16px;">
+  <form method="get" action="/admin/stores" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;">
+    <div style="min-width:220px;">
+      <label for="platform">Platform</label>
+      <select id="platform" name="platform">
+        <option value="">All platforms</option>
+        <option value="woocommerce" {% if platform=='woocommerce' %}selected{% endif %}>WordPress / WooCommerce</option>
+        <option value="shopify" {% if platform=='shopify' %}selected{% endif %}>Shopify</option>
+        <option value="magento" {% if platform=='magento' %}selected{% endif %}>Magento</option>
+      </select>
+    </div>
+    <button class="btn secondary" type="submit">Filter</button>
+  </form>
+</div>
+
+<div class="card">
+  {% if stores %}
+  <table>
+    <thead>
+      <tr>
+        <th>Store</th>
+        <th>Platform</th>
+        <th>Status</th>
+        <th>Sessions</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in stores %}
+      <tr>
+        <td>
+          <div><strong>{{ s.store_name }}</strong></div>
+          <div class="muted mono">{{ s.store_id }}</div>
+          <div class="muted">{{ s.store_url }}</div>
+        </td>
+        <td><span class="pill {{ s.platform }}">{{ s.platform }}</span></td>
+        <td>{% if s.active %}<span class="pill on">Active</span>{% else %}<span class="pill off">Inactive</span>{% endif %}</td>
+        <td>{{ session_counts.get(s.store_id, 0) }}</td>
+        <td><a class="btn secondary small" href="/admin/stores/{{ s.store_id }}">Open</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <p class="muted">No stores found for this filter.</p>
+  {% endif %}
+</div>
+{% endblock %}

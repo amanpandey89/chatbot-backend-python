@@ -1,6 +1,6 @@
-# WooCommerce AI Chatbot
+# AI Shopping Chatbot
 
-AI-powered product recommendation chatbot for WooCommerce stores. Built with Python FastAPI + OpenAI GPT-4o-mini, deployed on Railway, embedded in WordPress via a JS widget.
+AI-powered product recommendation chatbot for **WooCommerce** and **Shopify** stores. Built with Python FastAPI + OpenAI GPT-4o-mini, deployed on Railway, embedded via a shared JS widget (WordPress plugin or Shopify theme app embed).
 
 ---
 
@@ -8,9 +8,9 @@ AI-powered product recommendation chatbot for WooCommerce stores. Built with Pyt
 
 - **Backend** — Python 3.12 + FastAPI + Uvicorn
 - **AI** — OpenAI GPT-4o-mini
-- **Products** — WooCommerce REST API
+- **Catalogs** — WooCommerce REST API + Shopify Admin API
 - **Hosting** — Railway
-- **Frontend** — Vanilla JS widget + WordPress
+- **Storefronts** — Vanilla JS widget + WordPress plugin / Shopify theme extension
 
 ---
 
@@ -19,21 +19,21 @@ AI-powered product recommendation chatbot for WooCommerce stores. Built with Pyt
 ```
 chatbot-backend-python/
 ├── src/
-│   ├── main.py                  # Entry point
+│   ├── main.py
 │   ├── routes/
-│   │   ├── register.py          # POST /api/register
-│   │   ├── session.py           # POST /api/session
-│   │   ├── products.py          # GET  /api/products
-│   │   └── chat.py              # POST /api/chat
+│   │   ├── chat.py, session.py, products.py, register.py
+│   │   ├── admin.py
+│   │   └── shopify_app.py          # OAuth + uninstall webhook
 │   └── services/
-│       ├── store.py             # In-memory storage
-│       ├── woocommerce.py       # WooCommerce integration
-│       └── openai_service.py    # OpenAI integration
-├── static/
-│   └── chatbot.js               # WordPress widget
-├── .env                         # Secret keys (never commit)
+│       ├── store.py                # SQLite tenants + sessions
+│       ├── catalog.py              # Woo / Shopify adapter
+│       ├── woocommerce.py
+│       ├── shopify_service.py
+│       └── openai_service.py
+├── static/chatbot.js
+├── shopify/                        # Shopify CLI app + theme embed
+├── wordpress-plugin/               # (local / gitignored)
 ├── .env.example
-├── Procfile
 └── requirements.txt
 ```
 
@@ -42,27 +42,15 @@ chatbot-backend-python/
 ## Local Setup
 
 ```bash
-# 1. Clone and enter project
-git clone https://github.com/yourusername/chatbot-backend-python.git
-cd chatbot-backend-python
-
-# 2. Create and activate virtual environment
 python -m venv venv
-venv\Scripts\activate        # Windows
-source venv/bin/activate     # Mac/Linux
-
-# 3. Install dependencies
+source venv/bin/activate
 pip install -r requirements.txt
-
-# 4. Configure .env
 cp .env.example .env
-# Fill in your values (see Environment Variables below)
-
-# 5. Run server
+# Fill OPENAI_API_KEY (+ Woo and/or Shopify vars)
 uvicorn src.main:app --reload --port 3000
 ```
 
-Open `http://localhost:3000/docs` to test all endpoints interactively.
+Open `http://localhost:3000/docs` for API docs, `/admin` for the dashboard.
 
 ---
 
@@ -71,20 +59,41 @@ Open `http://localhost:3000/docs` to test all endpoints interactively.
 | Variable | Required | Description |
 |---|---|---|
 | `OPENAI_API_KEY` | Yes | OpenAI API key |
-| `STORE_ID` | Yes | Any unique string e.g. `my-store-001` |
-| `WC_STORE_URL` | Yes | Store URL — no trailing slash |
-| `WC_CONSUMER_KEY` | Yes | WooCommerce REST API key |
-| `WC_CONSUMER_SECRET` | Yes | WooCommerce REST API secret |
-| `WC_STORE_NAME` | No | Display name (default: My Store) |
-| `INCLUDED_CATEGORIES` | No | Comma-separated category names to include |
+| `APP_URL` | For Shopify | Public HTTPS backend URL |
+| `SHOPIFY_API_KEY` | For Shopify | Partners app API key |
+| `SHOPIFY_API_SECRET` | For Shopify | Partners app API secret |
+| `SHOPIFY_SCOPES` | No | Default `read_products,read_orders,read_customers` |
+| `STORE_ID` / `WC_*` | Optional | Auto-register one Woo store on startup |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | No | Dashboard login (`admin` / `change-me`) |
 
 ---
 
-## WooCommerce API Keys
+## Shopify
 
-Go to **WooCommerce → Settings → Advanced → REST API → Add Key**
-- Permissions: `Read`
-- Copy Consumer Key and Consumer Secret
+1. Create an app in [Shopify Partners](https://partners.shopify.com/)
+2. Set redirect URL: `https://YOUR_BACKEND/shopify/callback`
+3. Put API key/secret + `APP_URL` in `.env`
+4. Install: Admin → **Install Shopify**, or  
+   `https://YOUR_BACKEND/shopify/install?shop=your-store.myshopify.com`
+5. Deploy theme extension (see [`shopify/README.md`](shopify/README.md)):
+
+```bash
+cd shopify
+shopify app config link
+shopify app deploy
+```
+
+6. Enable **AI Shopping Chat** in Themes → Customize → App embeds and set Backend URL
+
+Store ID for Shopify tenants is the shop domain (`your-store.myshopify.com`).
+
+---
+
+## Admin Dashboard
+
+- URL: `https://your-backend/admin`
+- Overview by platform, enable/disable/delete stores, manual add, Shopify OAuth install
+- SQLite: `data/app.db` (`SESSIONS_DB` / `APP_DB`)
 
 ---
 
@@ -94,48 +103,15 @@ Use the plugin in `wordpress-plugin/ai-shopping-assistant/` (copy into `wp-conte
 
 1. Open **WP Admin → AI Assistant**
 2. Set **Backend URL** and **Store ID**
-3. Optionally edit **Quick replies**, visibility, and personalized picks on open
-
-The plugin embeds `chatbot.js`, sends `user_context`, and enables **Add to cart** from chat product cards.
-
-### Backend extras
-
-- **Product cache** — in-memory TTL (default 10 minutes, `PRODUCT_CACHE_TTL`)
-- **Persistent sessions** — SQLite at `data/sessions.db` (override with `SESSIONS_DB`)
-- **Proactive recommendations** — `/api/session` may return `recommendations` when preference signals exist
-
+3. Optionally edit quick replies, visibility, and personalized picks
 
 ---
 
 ## Deploy to Railway
 
-```bash
-# 1. Push to GitHub
-git add .
-git commit -m "initial commit"
-git push
-
-# 2. Go to railway.app → New Project → Deploy from GitHub
-# 3. Add all environment variables in Railway → Variables tab
-# 4. Get your public URL from Settings → Domains
-```
-
-Verify deployment:
-```
-https://your-url.up.railway.app/health   → {"status": "ok"}
-https://your-url.up.railway.app/debug    → shows registered stores
-```
----
-
-## Troubleshooting
-
-| Problem | Fix |
-|---|---|
-| "Could not connect" | Check `store_id` in `functions.php` matches `STORE_ID` in env. Visit `/debug` to confirm store is registered. |
-| 403 from WooCommerce | Regenerate API keys. Add `SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1` to `.htaccess`. |
-| Raw JSON in chat | Hard refresh with Ctrl+Shift+R after any backend update. |
-| Railway deploy fails | Run `pip freeze > requirements.txt` with venv active. Confirm `Procfile` exists. |
-| Products not showing | Visit `/api/products?store_id=xxx` to test. Check `INCLUDED_CATEGORIES` matches exact WooCommerce names. |
+1. Push to GitHub and deploy from Railway
+2. Set env vars (including `APP_URL` = your Railway domain)
+3. Verify `/health` and `/admin`
 
 ---
 
@@ -147,8 +123,11 @@ https://your-url.up.railway.app/debug    → shows registered stores
 | POST | `/api/session` | Start a chat session |
 | GET | `/api/products` | Fetch store products |
 | POST | `/api/chat` | Send message, get AI response |
+| GET | `/shopify/install` | Start Shopify OAuth |
+| GET | `/shopify/callback` | OAuth callback |
+| POST | `/shopify/webhooks/app-uninstalled` | Disable tenant on uninstall |
+| GET | `/admin` | Admin dashboard |
 | GET | `/health` | Health check |
-| GET | `/debug` | View registered stores |
 | GET | `/docs` | Interactive API docs |
 
 ---

@@ -17,7 +17,8 @@
   let sessionId = null;   // filled after /api/session call
   let isOpen = false;  // is the chat window open?
   let isLoading = false;  // are we waiting for a backend response?
-  let currencySymbol = '₹'; // filled after /api/session call
+  let currencySymbol = scriptTag.getAttribute('data-currency') || '₹';
+  // filled/overridden after /api/session call
 
   // Shown only before the first user message in a new session
   const DEFAULT_QUICK_REPLIES = [
@@ -429,9 +430,11 @@
     setTimeout(function () { el.remove(); }, 2500);
   }
 
-  async function addToCart(productId, button) {
+  async function addToCart(product, button) {
     const cart = window.CB_CART || {};
-    if (!cart.enabled || !cart.ajaxUrl || !productId) {
+    const productId = typeof product === 'object' ? product.id : product;
+    const variantId = typeof product === 'object' ? product.variant_id : null;
+    if (!cart.enabled || !productId) {
       showToast('Add to cart is not available on this page.');
       return;
     }
@@ -441,28 +444,55 @@
     button.textContent = 'Adding...';
 
     try {
-      const res = await fetch(cart.ajaxUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        credentials: 'same-origin',
-        body: 'product_id=' + encodeURIComponent(productId) + '&quantity=1'
-      });
-      const data = await res.json().catch(function () { return null; });
+      let res;
+      let data = null;
 
-      if (res.ok && data && data.error) {
-        showToast(data.error_message || 'Could not add to cart.');
-        button.disabled = false;
-        button.textContent = original;
-        return;
+      if ((cart.platform || '').toLowerCase() === 'shopify') {
+        const id = variantId || productId;
+        res = await fetch(cart.ajaxUrl || '/cart/add.js', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ id: id, quantity: 1 })
+        });
+        data = await res.json().catch(function () { return null; });
+        if (!res.ok || (data && data.status && data.message)) {
+          showToast((data && (data.description || data.message)) || 'Could not add to cart.');
+          button.disabled = false;
+          button.textContent = original;
+          return;
+        }
+        document.documentElement.dispatchEvent(new CustomEvent('cart:refresh'));
+      } else {
+        if (!cart.ajaxUrl) {
+          showToast('Add to cart is not available on this page.');
+          button.disabled = false;
+          button.textContent = original;
+          return;
+        }
+        res = await fetch(cart.ajaxUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          credentials: 'same-origin',
+          body: 'product_id=' + encodeURIComponent(productId) + '&quantity=1'
+        });
+        data = await res.json().catch(function () { return null; });
+
+        if (res.ok && data && data.error) {
+          showToast(data.error_message || 'Could not add to cart.');
+          button.disabled = false;
+          button.textContent = original;
+          return;
+        }
+        document.body.dispatchEvent(new Event('wc_fragment_refresh'));
+        if (typeof jQuery !== 'undefined') {
+          jQuery(document.body).trigger('wc_fragment_refresh');
+          jQuery(document.body).trigger('added_to_cart');
+        }
       }
 
       button.textContent = 'Added';
       showToast('Added to cart');
-      document.body.dispatchEvent(new Event('wc_fragment_refresh'));
-      if (typeof jQuery !== 'undefined') {
-        jQuery(document.body).trigger('wc_fragment_refresh');
-        jQuery(document.body).trigger('added_to_cart');
-      }
       setTimeout(function () {
         button.disabled = false;
         button.textContent = original;
@@ -512,7 +542,7 @@
       const addBtn = card.querySelector('.cb-add-cart');
       if (addBtn) {
         addBtn.addEventListener('click', function () {
-          addToCart(p.id, addBtn);
+          addToCart(p, addBtn);
         });
       }
 

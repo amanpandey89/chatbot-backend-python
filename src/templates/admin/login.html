@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin Login · AI Shopping Assistant</title>
+  <link rel="icon" href="/static/logo.png" type="image/png" />
+  <style>
+    :root {
+      --bg: #141210;
+      --panel: #221e1b;
+      --text: #f4f1ec;
+      --muted: #a89f96;
+      --accent: #4fd18a;
+      --ok: #4fd18a;
+      --danger: #ff6b7a;
+      --border: rgba(255,255,255,0.08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh;
+      font-family: "Segoe UI", ui-sans-serif, system-ui, -apple-system, Roboto, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(900px 500px at 20% -10%, rgba(79,209,138,0.22), transparent 55%),
+        radial-gradient(600px 380px at 100% 100%, rgba(58,50,44,0.55), transparent 50%),
+        var(--bg);
+      display: grid; place-items: center; padding: 24px;
+    }
+    .card {
+      width: 100%; max-width: 420px;
+      background: linear-gradient(180deg, #2a2521, var(--panel));
+      border: 1px solid var(--border);
+      border-radius: 20px; padding: 26px;
+      box-shadow: 0 18px 50px rgba(0,0,0,0.4);
+    }
+    .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+    .brand img {
+      width: 48px; height: 48px; border-radius: 14px;
+      object-fit: contain; background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border); padding: 5px;
+    }
+    .running {
+      display: inline-flex; align-items: center; gap: 8px;
+      margin-bottom: 14px; padding: 7px 11px; border-radius: 999px;
+      background: rgba(79,209,138,0.12); border: 1px solid rgba(79,209,138,0.22);
+      color: #c9f8dd; font-size: 12px; font-weight: 700;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 4px rgba(79,209,138,0.18); }
+    h1 { margin: 0 0 6px; font-size: 24px; }
+    p { margin: 0 0 18px; color: var(--muted); font-size: 14px; }
+    label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+    input {
+      width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border);
+      background: rgba(0,0,0,0.25); color: var(--text); font-size: 14px; margin-bottom: 14px;
+      font-family: inherit;
+    }
+    input:focus { outline: 2px solid rgba(79,209,138,0.45); border-color: transparent; }
+    .btn {
+      width: 100%; border: none; border-radius: 12px; padding: 12px 14px;
+      background: var(--accent); color: #102418; font-weight: 700; cursor: pointer; font-size: 14px;
+    }
+    .btn:hover { filter: brightness(1.06); }
+    .error {
+      margin-bottom: 14px; padding: 11px 12px; border-radius: 12px;
+      background: rgba(255,107,122,0.12); color: #ffc2c9; border: 1px solid rgba(255,107,122,0.25);
+      font-size: 13px;
+    }
+    .back { display: inline-block; margin-top: 14px; color: var(--muted); font-size: 13px; text-decoration: none; }
+    .back:hover { color: var(--text); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="running"><span class="dot"></span> Backend online</div>
+    <div class="brand">
+      <img src="/static/logo.png" alt="Logo" width="48" height="48" />
+      <div>
+        <strong>Shopping Assistant</strong><br />
+        <span style="color:var(--muted);font-size:12px;">Admin login</span>
+      </div>
+    </div>
+    <h1>Sign in</h1>
+    <p>Manage connected WordPress and Shopify stores from one dashboard.</p>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <form method="post" action="/admin/login">
+      <label for="username">Username</label>
+      <input id="username" name="username" autocomplete="username" required />
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required />
+      <button class="btn" type="submit">Login</button>
+    </form>
+    <a class="back" href="/">← Back to status page</a>
+  </div>
+</body>
+</html>

@@ -1,0 +1,43 @@
+{% extends "admin/base.html" %}
+{% block title %}Add store{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Add store</h1>
+    <p>Manually register a store. Prefer <a class="link-accent" href="/admin/shopify">Install Shopify</a> for OAuth installs.</p>
+  </div>
+</div>
+
+{% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+
+<div class="card" style="max-width:640px;">
+  <form method="post" action="/admin/stores/new">
+    <label for="platform">Platform</label>
+    <select id="platform" name="platform">
+      <option value="woocommerce">WordPress / WooCommerce</option>
+      <option value="shopify">Shopify</option>
+      <option value="magento">Magento</option>
+    </select>
+
+    <label for="store_name">Store name</label>
+    <input id="store_name" name="store_name" required placeholder="My Store" />
+
+    <label for="store_id">Store ID (optional)</label>
+    <input id="store_id" name="store_id" placeholder="auto — Shopify uses shop.myshopify.com" />
+
+    <label for="store_url">Store URL / shop domain</label>
+    <input id="store_url" name="store_url" required placeholder="https://example.com or your-store.myshopify.com" />
+
+    <label for="consumer_key">Consumer key (WooCommerce)</label>
+    <input id="consumer_key" name="consumer_key" />
+
+    <label for="consumer_secret">Consumer secret (WooCommerce)</label>
+    <input id="consumer_secret" name="consumer_secret" />
+
+    <label for="access_token">Access token (Shopify manual)</label>
+    <input id="access_token" name="access_token" />
+
+    <button class="btn" type="submit">Save store</button>
+  </form>
+</div>
+{% endblock %}

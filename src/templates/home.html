@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Shopping Assistant · Running</title>
+  <link rel="icon" href="/static/logo.png" type="image/png" />
+  <style>
+    :root {
+      --bg: #141210;
+      --panel: #221e1b;
+      --text: #f4f1ec;
+      --muted: #a89f96;
+      --accent: #4fd18a;
+      --ok: #4fd18a;
+      --border: rgba(255,255,255,0.08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh;
+      font-family: "Segoe UI", ui-sans-serif, system-ui, -apple-system, Roboto, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(900px 500px at 15% -10%, rgba(79,209,138,0.22), transparent 55%),
+        radial-gradient(700px 400px at 90% 10%, rgba(58,50,44,0.45), transparent 50%),
+        var(--bg);
+      display: grid; place-items: center; padding: 24px;
+    }
+    .card {
+      width: 100%; max-width: 560px;
+      background: linear-gradient(180deg, #2a2521, var(--panel));
+      border: 1px solid var(--border);
+      border-radius: 22px; padding: 28px;
+      box-shadow: 0 18px 50px rgba(0,0,0,0.4);
+    }
+    .brand {
+      display: flex; align-items: center; gap: 14px; margin-bottom: 18px;
+    }
+    .brand img {
+      width: 56px; height: 56px; border-radius: 16px;
+      object-fit: contain; background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border); padding: 6px;
+    }
+    .badge {
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 8px 12px; border-radius: 999px;
+      background: rgba(79,209,138,0.12);
+      border: 1px solid rgba(79,209,138,0.25);
+      color: #c9f8dd; font-size: 13px; font-weight: 700;
+    }
+    .dot {
+      width: 9px; height: 9px; border-radius: 50%; background: var(--ok);
+      box-shadow: 0 0 0 4px rgba(79,209,138,0.18);
+      animation: pulse 1.6s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.55; }
+    }
+    h1 { margin: 18px 0 8px; font-size: 28px; }
+    p { margin: 0; color: var(--muted); line-height: 1.5; }
+    .meta {
+      margin-top: 22px; display: grid; gap: 10px;
+      padding: 14px; border-radius: 14px;
+      background: rgba(0,0,0,0.22); border: 1px solid var(--border);
+      font-size: 14px;
+    }
+    .meta div { display: flex; justify-content: space-between; gap: 12px; }
+    .meta span { color: var(--muted); }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 22px; }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      padding: 11px 16px; border-radius: 12px; font-weight: 700; font-size: 14px;
+      text-decoration: none; color: #102418; background: var(--accent);
+    }
+    .btn.secondary { background: rgba(255,255,255,0.08); color: var(--text); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">
+      <img src="/static/logo.png" alt="Logo" width="56" height="56" />
+      <div class="badge"><span class="dot"></span> Python backend is running</div>
+    </div>
+    <h1>AI Shopping Assistant</h1>
+    <p>FastAPI chatbot service is up. Use the admin console to manage WordPress and Shopify store connections.</p>
+
+    <div class="meta">
+      <div><span>Status</span><strong>{{ status }}</strong></div>
+      <div><span>Health</span><strong>{{ health }}</strong></div>
+      <div><span>Connected stores</span><strong>{{ total_stores }}</strong></div>
+      <div><span>Active stores</span><strong>{{ active_stores }}</strong></div>
+      <div><span>OpenAI key</span><strong>{{ openai_status }}</strong></div>
+    </div>
+
+    <div class="actions">
+      <a class="btn" href="/admin/login">Admin login</a>
+      <a class="btn secondary" href="/docs">API docs</a>
+      <a class="btn secondary" href="/health">Health JSON</a>
+    </div>
+  </div>
+</body>
+</html>

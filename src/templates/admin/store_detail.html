@@ -1,0 +1,54 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ store.store_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>{{ store.store_name }}</h1>
+    <p class="mono muted">{{ store.store_id }}</p>
+  </div>
+  <div class="actions">
+    <form class="inline" method="post" action="/admin/stores/{{ store.store_id }}/toggle">
+      {% if store.active %}
+        <button class="btn secondary" type="submit">Disable</button>
+      {% else %}
+        <button class="btn" type="submit">Enable</button>
+      {% endif %}
+    </form>
+    <form class="inline" method="post" action="/admin/stores/{{ store.store_id }}/delete" onsubmit="return confirm('Delete this store connection?');">
+      <button class="btn danger" type="submit">Delete</button>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="detail-grid">
+    <div>Platform</div><div><span class="pill {{ store.platform }}">{{ store.platform }}</span></div>
+    <div>Status</div>
+    <div>{% if store.active %}<span class="pill on">Active</span>{% else %}<span class="pill off">Inactive</span>{% endif %}</div>
+    <div>Store URL</div>
+    <div>
+      {% if store.platform == 'shopify' %}
+        <a class="link-accent" href="https://{{ store.store_url }}" target="_blank" rel="noopener">{{ store.store_url }}</a>
+      {% else %}
+        <a class="link-accent" href="{{ store.store_url }}" target="_blank" rel="noopener">{{ store.store_url }}</a>
+      {% endif %}
+    </div>
+    <div>Sessions</div><div>{{ session_count }}</div>
+    <div>Consumer key</div><div class="mono">{{ store.consumer_key or '—' }}</div>
+    <div>Consumer secret</div><div class="mono">{{ store.consumer_secret or '—' }}</div>
+    <div>Access token</div><div class="mono">{{ store.access_token or '—' }}</div>
+    <div>Updated</div><div class="muted">{{ updated_label }}</div>
+  </div>
+</div>
+
+<div class="card section">
+  <h2 style="margin-top:0;font-size:18px;">Embed</h2>
+  {% if store.platform == 'shopify' %}
+    <p class="muted">After OAuth, enable the theme app embed: Themes → Customize → App embeds → <strong>AI Shopping Chat</strong>. Set Backend URL to this server.</p>
+    <p class="muted">Manual script fallback:</p>
+  {% else %}
+    <p class="muted">For manual embeds (WordPress plugin preferred when available):</p>
+  {% endif %}
+  <pre class="mono" style="white-space:pre-wrap;background:rgba(0,0,0,.25);padding:14px;border-radius:12px;border:1px solid var(--border);">{{ embed_snippet }}</pre>
+</div>
+{% endblock %}

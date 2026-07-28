@@ -1,36 +1,49 @@
 {
-    "745a0e91-9513-4912-8080-759e1a987e7b": {
-        "store_url": "http://mysite.com",
-        "consumer_key": "ck_123",
-        "consumer_secret": "cs_123",
-        "store_name": "Test Store"
-    },
-    "store1": {
-        "store_url": "https://mystore.com",
-        "store_name": "My Shop"
-    },
-    "1e6c34ab-8661-4132-8c67-0bbdc860153b": {
-        "store_url": "https://phonesurgeryonline.co.uk",
-        "consumer_key": "ck_54a7125d1100913dc28b5ca75c4744feb225a6e6",
-        "consumer_secret": "cs_ea548898c250050880a4f4fcbef02486cf58b8e8",
-        "store_name": "Phone Surgery"
-    },
-    "my-store-001": {
-        "store_url": "https://phonesurgeryonline.co.uk",
-        "consumer_key": "ck_54a7125d1100913dc28b5ca75c4744feb225a6e6",
-        "consumer_secret": "cs_ea548898c250050880a4f4fcbef02486cf58b8e8",
-        "store_name": "Phone Surgery"
-    },
-    "fef616e7-2853-4592-ada7-ed7a832620e6": {
-        "store_url": "https://staging.recycletroop.com",
-        "consumer_key": "ck_636da9b5650bffcc5c9de609c47fa7c887ef419b",
-        "consumer_secret": "cs_50b4405faca63ba94bbfa413ab3a73b4eff1a981",
-        "store_name": "Recycletroop"
+    "my-store-swagdealscollection": {
+        "platform": "woocommerce",
+        "store_name": "WordPress Demo",
+        "store_url": "https://your-store.com",
+        "consumer_key": "ck_03b449c1dad35a8634872bdeef454aabb886b83a",
+        "consumer_secret": "cs_f5647aeb62298ebf8608040e464b530ea87f8493"
     },
     "swagdealscollection": {
+        "platform": "woocommerce",
+        "store_name": "WordPress Demo",
         "store_url": "https://wordpressdemo.wasmer.app",
         "consumer_key": "ck_03b449c1dad35a8634872bdeef454aabb886b83a",
-        "consumer_secret": "cs_f5647aeb62298ebf8608040e464b530ea87f8493",
-        "store_name": "WordPress Demo"
+        "consumer_secret": "cs_f5647aeb62298ebf8608040e464b530ea87f8493"
+    },
+    "fef616e7-2853-4592-ada7-ed7a832620e6": {
+        "platform": "woocommerce",
+        "store_name": "Recycletroop",
+        "store_url": "https://staging.recycletroop.com",
+        "consumer_key": "ck_636da9b5650bffcc5c9de609c47fa7c887ef419b",
+        "consumer_secret": "cs_50b4405faca63ba94bbfa413ab3a73b4eff1a981"
+    },
+    "my-store-001": {
+        "platform": "woocommerce",
+        "store_name": "Phone Surgery",
+        "store_url": "https://phonesurgeryonline.co.uk",
+        "consumer_key": "ck_54a7125d1100913dc28b5ca75c4744feb225a6e6",
+        "consumer_secret": "cs_ea548898c250050880a4f4fcbef02486cf58b8e8"
+    },
+    "1e6c34ab-8661-4132-8c67-0bbdc860153b": {
+        "platform": "woocommerce",
+        "store_name": "Phone Surgery",
+        "store_url": "https://phonesurgeryonline.co.uk",
+        "consumer_key": "ck_54a7125d1100913dc28b5ca75c4744feb225a6e6",
+        "consumer_secret": "cs_ea548898c250050880a4f4fcbef02486cf58b8e8"
+    },
+    "store1": {
+        "platform": "woocommerce",
+        "store_name": "My Shop",
+        "store_url": "https://mystore.com"
+    },
+    "745a0e91-9513-4912-8080-759e1a987e7b": {
+        "platform": "woocommerce",
+        "store_name": "Test Store",
+        "store_url": "http://mysite.com",
+        "consumer_key": "ck_123",
+        "consumer_secret": "cs_123"
     }
 }

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from src.services.store import get_tenant
-from src.services.woocommerce import fetch_products
+from src.services.catalog import fetch_products
 
 router = APIRouter()
 
