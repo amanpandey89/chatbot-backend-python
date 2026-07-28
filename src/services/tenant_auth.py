@@ -64,11 +64,35 @@ def verify_tenant_api_key(store_id: str, api_key: str) -> bool:
     tenant = get_tenant(store_id, include_inactive=False, include_secrets=True)
     if not tenant:
         return False
-    stored = tenant.get("tenant_api_key") or ""
-    if not stored:
-        # Lazy-create then fail this request (client must refresh key from dashboard)
-        return False
-    return hmac.compare_digest(stored, api_key)
+    candidates = [
+        tenant.get("tenant_api_key") or "",
+        # WooCommerce merchants can use the registered consumer secret
+        tenant.get("consumer_secret") or "",
+    ]
+    for stored in candidates:
+        if stored and hmac.compare_digest(str(stored), str(api_key)):
+            return True
+    return False
+
+
+def tenant_auth_error(store_id: str, api_key: str) -> str:
+    """Human-readable auth failure for API clients (WordPress)."""
+    tenant = get_tenant(store_id, include_inactive=True, include_secrets=True)
+    if not tenant:
+        return (
+            f'Store ID "{store_id}" was not found on the backend. '
+            "Use the exact Store ID from Admin → Stores."
+        )
+    if not tenant.get("active", True):
+        return f'Store "{store_id}" is disabled on the backend.'
+    if not api_key:
+        return "Tenant API key is missing."
+    if verify_tenant_api_key(store_id, api_key):
+        return ""
+    return (
+        "Invalid Tenant API key. Copy a fresh key from Admin → store detail "
+        f"(or /app/{store_id}/settings), or use the store Consumer Secret."
+    )
 
 
 def get_store_id_from_request(request: Request) -> Optional[str]:

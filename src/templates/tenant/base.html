@@ -86,6 +86,9 @@
         <a class="side-link {% if active_nav == 'overview' %}active{% endif %}" href="/app/{{ store_id }}">Overview</a>
         <a class="side-link {% if active_nav == 'chats' %}active{% endif %}" href="/app/{{ store_id }}/chats">Chats</a>
         <a class="side-link {% if active_nav == 'train' %}active{% endif %}" href="/app/{{ store_id }}/train">Train AI</a>
+        <a class="side-link {% if active_nav == 'sources' %}active{% endif %}" href="/app/{{ store_id }}/train/sources">Knowledge</a>
+        <a class="side-link {% if active_nav == 'sync' %}active{% endif %}" href="/app/{{ store_id }}/train/sync">Sync</a>
+        <a class="side-link {% if active_nav == 'search' %}active{% endif %}" href="/app/{{ store_id }}/train/search">Search test</a>
         <a class="side-link {% if active_nav == 'settings' %}active{% endif %}" href="/app/{{ store_id }}/settings">Settings</a>
       </nav>
       <form method="post" action="/app/{{ store_id }}/logout">

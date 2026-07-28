@@ -1,0 +1,30 @@
+{% extends "tenant/base.html" %}
+{% block title %}Training logs{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Training logs</h1>
+    <p>Indexing events, sync progress, and errors.</p>
+  </div>
+  <a class="btn secondary" href="/app/{{ store_id }}/train">← Train AI</a>
+</div>
+<div class="card">
+  {% if logs %}
+  <table>
+    <thead><tr><th>Time</th><th>Level</th><th>Event</th><th>Message</th></tr></thead>
+    <tbody>
+      {% for l in logs %}
+      <tr>
+        <td class="muted">{{ fmt(l.created_at) }}</td>
+        <td>{{ l.level }}</td>
+        <td class="mono">{{ l.event }}</td>
+        <td>{{ l.message }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No logs yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

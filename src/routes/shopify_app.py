@@ -11,7 +11,7 @@ from typing import Optional
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from src.services.store import (
@@ -39,7 +39,7 @@ def _api_secret() -> str:
 def _scopes() -> str:
     return os.getenv(
         "SHOPIFY_SCOPES",
-        "read_products,read_orders,read_customers",
+        "read_products,read_orders,read_customers,read_content,read_product_listings",
     )
 
 
@@ -577,21 +577,40 @@ async def shopify_callback(
 
 async def _register_uninstall_webhook(shop: str, access_token: str, backend: str):
     api_version = os.getenv("SHOPIFY_API_VERSION", "2024-10")
+    topics = [
+        ("app/uninstalled", f"{backend}/shopify/webhooks/app-uninstalled"),
+        ("products/create", f"{backend}/shopify/webhooks/catalog"),
+        ("products/update", f"{backend}/shopify/webhooks/catalog"),
+        ("products/delete", f"{backend}/shopify/webhooks/catalog"),
+        ("collections/create", f"{backend}/shopify/webhooks/catalog"),
+        ("collections/update", f"{backend}/shopify/webhooks/catalog"),
+        ("collections/delete", f"{backend}/shopify/webhooks/catalog"),
+        ("pages/create", f"{backend}/shopify/webhooks/catalog"),
+        ("pages/update", f"{backend}/shopify/webhooks/catalog"),
+        ("pages/delete", f"{backend}/shopify/webhooks/catalog"),
+        ("articles/create", f"{backend}/shopify/webhooks/catalog"),
+        ("articles/update", f"{backend}/shopify/webhooks/catalog"),
+        ("articles/delete", f"{backend}/shopify/webhooks/catalog"),
+    ]
     async with httpx.AsyncClient(timeout=15.0) as client:
-        await client.post(
-            f"https://{shop}/admin/api/{api_version}/webhooks.json",
-            headers={
-                "X-Shopify-Access-Token": access_token,
-                "Content-Type": "application/json",
-            },
-            json={
-                "webhook": {
-                    "topic": "app/uninstalled",
-                    "address": f"{backend}/shopify/webhooks/app-uninstalled",
-                    "format": "json",
-                }
-            },
-        )
+        for topic, address in topics:
+            try:
+                await client.post(
+                    f"https://{shop}/admin/api/{api_version}/webhooks.json",
+                    headers={
+                        "X-Shopify-Access-Token": access_token,
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "webhook": {
+                            "topic": topic,
+                            "address": address,
+                            "format": "json",
+                        }
+                    },
+                )
+            except Exception as e:
+                print(f"Webhook {topic} skipped: {e}")
 
 
 @router.post("/webhooks/app-uninstalled")
@@ -607,6 +626,94 @@ async def shopify_app_uninstalled(request: Request):
     if shop:
         set_tenant_active(shop, False)
         print(f"── Shopify app uninstalled: {shop} (disabled)")
+    return {"ok": True}
+
+
+@router.post("/webhooks/catalog")
+async def shopify_catalog_webhook(request: Request, background_tasks: BackgroundTasks):
+    """Incremental RAG reindex when products/pages/collections/articles change."""
+    _require_shopify_config()
+    raw = await request.body()
+    hmac_header = request.headers.get("X-Shopify-Hmac-Sha256", "")
+    if not verify_webhook_hmac(raw, hmac_header, _api_secret()):
+        raise HTTPException(status_code=401, detail="Invalid webhook HMAC")
+
+    shop = shopify_store_id(request.headers.get("X-Shopify-Shop-Domain") or "")
+    topic = (request.headers.get("X-Shopify-Topic") or "").lower()
+    if not shop or not get_tenant(shop):
+        return {"ok": True, "skipped": True}
+
+    import json as _json
+
+    try:
+        payload = _json.loads(raw.decode("utf-8") or "{}")
+    except Exception:
+        payload = {}
+
+    async def _index():
+        from src.knowledge.ingest import (
+            upsert_and_index_async_prep,
+            index_source_async,
+            delete_source,
+            list_sources,
+        )
+        from src.services.woocommerce import strip_html
+
+        is_delete = topic.endswith("/delete")
+        if "products/" in topic:
+            source_type = "product"
+            ext = str(payload.get("id") or "")
+            title = payload.get("title") or "Product"
+            handle = payload.get("handle") or ""
+            body = f"{title}\n{strip_html(payload.get('body_html') or '')}"
+            url = f"https://{shop}/products/{handle}" if handle else ""
+        elif "collections/" in topic:
+            source_type = "collection"
+            ext = str(payload.get("id") or "")
+            title = payload.get("title") or "Collection"
+            handle = payload.get("handle") or ""
+            body = f"{title}\n{strip_html(payload.get('body_html') or '')}"
+            url = f"https://{shop}/collections/{handle}" if handle else ""
+        elif "pages/" in topic:
+            source_type = "page"
+            ext = str(payload.get("id") or "")
+            title = payload.get("title") or "Page"
+            handle = payload.get("handle") or ""
+            body = f"{title}\n{strip_html(payload.get('body_html') or '')}"
+            url = f"https://{shop}/pages/{handle}" if handle else ""
+        elif "articles/" in topic:
+            source_type = "article"
+            ext = str(payload.get("id") or "")
+            title = payload.get("title") or "Article"
+            handle = payload.get("handle") or ""
+            body = f"{title}\n{strip_html(payload.get('body_html') or '')}"
+            url = ""
+        else:
+            return
+
+        if not ext:
+            return
+        if is_delete:
+            for s in list_sources(shop, source_type=source_type, limit=5000):
+                if s.get("external_id") == ext:
+                    delete_source(shop, s["id"])
+                    break
+            return
+
+        prep = upsert_and_index_async_prep(
+            shop,
+            source_type=source_type,
+            external_id=ext,
+            title=title,
+            url=url,
+            body=body,
+        )
+        if not prep.get("skipped"):
+            await index_source_async(
+                shop, prep["source_id"], text=prep["text"], title=title
+            )
+
+    background_tasks.add_task(_index)
     return {"ok": True}
 
 

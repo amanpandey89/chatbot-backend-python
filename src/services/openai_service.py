@@ -123,6 +123,7 @@ def build_system_prompt(
     - Prefer these trained facts over generic assumptions.
     - For FAQs/policies, answer from this training when relevant.
     - Keep the brand tone if provided.
+    - When RETRIEVED STORE KNOWLEDGE is present, treat it as the latest indexed store content.
 """
 
     system_prompt = f"""You are the official shopping assistant for {store_name}, an online ecommerce store.
@@ -237,10 +238,28 @@ async def get_recommendation(
     if store_id:
         try:
             from src.services.training import build_training_prompt_block
+            from src.knowledge.retrieve import search, format_retrieval_block
 
             training_block = build_training_prompt_block(store_id)
+
+            # RAG: retrieve top chunks for the latest user message
+            user_msgs = [
+                m.get("content") or ""
+                for m in (session.get("messages") or [])
+                if m.get("role") == "user"
+            ]
+            query = (user_msgs[-1] if user_msgs else "").strip()
+            if query:
+                hits = await search(store_id, query)
+                rag_block = format_retrieval_block(hits)
+                if rag_block:
+                    training_block = (
+                        f"{training_block}\n\n{rag_block}".strip()
+                        if training_block
+                        else rag_block
+                    )
         except Exception as e:
-            print(f"Training prompt skipped: {e}")
+            print(f"Training/RAG prompt skipped: {e}")
 
     system_prompt = build_system_prompt(
         products,

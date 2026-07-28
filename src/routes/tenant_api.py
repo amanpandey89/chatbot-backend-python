@@ -9,6 +9,7 @@ from src.services.tenant_auth import (
     get_store_id_from_request,
     ensure_tenant_api_key,
     verify_tenant_api_key,
+    tenant_auth_error,
 )
 from src.services import training as training_svc
 
@@ -22,11 +23,16 @@ def _auth_store(request: Request, store_id: str) -> str:
         if header_store != store_id:
             raise HTTPException(status_code=403, detail="Store mismatch")
         if not verify_tenant_api_key(store_id, key):
-            raise HTTPException(status_code=401, detail="Unauthorized")
+            raise HTTPException(
+                status_code=401, detail=tenant_auth_error(store_id, key)
+            )
         return store_id
     resolved = get_store_id_from_request(request)
     if not resolved or resolved != store_id:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized. Send X-Store-Id and X-Tenant-Key headers.",
+        )
     return store_id
 
 
