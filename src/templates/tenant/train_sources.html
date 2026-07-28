@@ -1,0 +1,98 @@
+{% extends "tenant/base.html" %}
+{% block title %}Knowledge sources{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Knowledge sources</h1>
+    <p>Indexed content by type — products, pages, FAQs, documents, website crawl, and more.</p>
+  </div>
+  <a class="btn secondary" href="/app/{{ store_id }}/train">← Train AI</a>
+</div>
+{% if flash %}<div class="flash">{{ flash }}</div>{% endif %}
+
+<div class="card">
+  <form method="get" action="/app/{{ store_id }}/train/sources" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;">
+    <div style="min-width:180px;">
+      <label for="source_type">Filter type</label>
+      <select id="source_type" name="source_type">
+        <option value="">All</option>
+        {% for t in source_types %}
+        <option value="{{ t }}" {% if source_type==t %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="btn secondary" type="submit">Filter</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin:0 0 12px;font-size:16px;">Upload document (TXT / MD)</h2>
+  <form method="post" action="/app/{{ store_id }}/train/documents" enctype="multipart/form-data">
+    <input type="file" name="file" accept=".txt,.md,.markdown,.csv" required />
+    <button class="btn" type="submit">Upload &amp; index</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin:0 0 12px;font-size:16px;">Excluded content</h2>
+  <form method="post" action="/app/{{ store_id }}/train/exclusions" style="display:grid;grid-template-columns:140px 1fr 1fr auto;gap:8px;align-items:end;">
+    <div>
+      <label>Match</label>
+      <select name="match_type">
+        <option value="url">URL</option>
+        <option value="id">ID</option>
+        <option value="path">Path</option>
+        <option value="title">Title</option>
+      </select>
+    </div>
+    <div><label>Value</label><input name="match_value" required placeholder="/privacy-policy" /></div>
+    <div><label>Reason</label><input name="reason" placeholder="Optional" /></div>
+    <button class="btn secondary" type="submit">Exclude</button>
+  </form>
+  {% if exclusions %}
+  <table style="margin-top:12px;">
+    <thead><tr><th>Type</th><th>Value</th><th>Reason</th><th></th></tr></thead>
+    <tbody>
+      {% for e in exclusions %}
+      <tr>
+        <td>{{ e.match_type }}</td>
+        <td class="mono">{{ e.match_value }}</td>
+        <td class="muted">{{ e.reason }}</td>
+        <td>
+          <form method="post" action="/app/{{ store_id }}/train/exclusions/{{ e.id }}/delete">
+            <button class="btn small danger" type="submit">Remove</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 style="margin:0 0 12px;font-size:16px;">Sources ({{ sources|length }})</h2>
+  {% if sources %}
+  <table>
+    <thead><tr><th>Type</th><th>Title</th><th>Status</th><th>Updated</th><th></th></tr></thead>
+    <tbody>
+      {% for s in sources %}
+      <tr>
+        <td><span class="pill">{{ s.source_type }}</span></td>
+        <td>{{ s.title }}{% if s.url %}<div class="muted mono">{{ s.url[:80] }}</div>{% endif %}</td>
+        <td>{{ s.status }}</td>
+        <td class="muted">{{ fmt(s.updated_at) }}</td>
+        <td>
+          <form method="post" action="/app/{{ store_id }}/train/sources/{{ s.id }}/delete" onsubmit="return confirm('Delete source?');">
+            <button class="btn small danger" type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No sources indexed yet. Sync Shopify or push content from WordPress.</p>
+  {% endif %}
+</div>
+{% endblock %}

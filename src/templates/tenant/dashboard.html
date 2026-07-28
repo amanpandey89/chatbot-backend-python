@@ -15,12 +15,12 @@
     <div class="stat-value">{{ sessions|length }}</div>
   </div>
   <div class="card">
-    <div class="stat-label">Knowledge entries</div>
-    <div class="stat-value">{{ knowledge_count }}</div>
+    <div class="stat-label">RAG sources</div>
+    <div class="stat-value">{{ rag.sources if rag else knowledge_count }}</div>
   </div>
   <div class="card">
-    <div class="stat-label">Platform</div>
-    <div class="stat-value" style="font-size:18px;margin-top:10px;"><span class="pill">{{ tenant.platform }}</span></div>
+    <div class="stat-label">Indexed chunks</div>
+    <div class="stat-value">{{ rag.chunks if rag else 0 }}</div>
   </div>
 </div>
 

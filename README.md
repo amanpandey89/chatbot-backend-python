@@ -94,20 +94,23 @@ Store ID for Shopify tenants is the shop domain (`your-store.myshopify.com`).
 Each store gets its own merchant dashboard:
 
 - URL: `/app/{store_id}` (Shopify opens this automatically after install)
-- **Train AI** — tone, standing instructions, FAQs / policies / rules
+- **Train AI (RAG)** — brand voice, FAQs/custom notes, knowledge sources, sync jobs, search testing, logs
 - **Chats** — view customer conversation history
 - **Settings** — tenant API key for WordPress / integrations
 
-Training is stored in SQLite and injected into the OpenAI system prompt on every chat.
+### RAG knowledge pipeline
 
-### WordPress / API access
+Content is **not fine-tuned**. It is ingested, chunked (~650 tokens, 100 overlap), embedded with `text-embedding-3-small`, and retrieved per chat query (top‑k chunks injected into the prompt).
 
-```http
-X-Store-Id: your-store-id
-X-Tenant-Key: <from merchant Settings>
-```
+| Source | How it syncs |
+|--------|----------------|
+| WordPress posts/pages/products/categories | Plugin hooks + full sync button → `POST /api/tenant/{id}/rag/ingest` |
+| Shopify products/collections/pages/blogs/policies | Merchant **Sync Shopify** + webhooks on create/update/delete |
+| FAQs / custom / documents / website crawl | Dashboard + REST APIs |
 
-Endpoints under `/api/tenant/{store_id}/...` for settings, knowledge CRUD, and chats.
+Key APIs under `/api/tenant/{store_id}/rag/...`: overview, sources, ingest, faqs, custom, documents, exclusions, jobs, search/test, rebuild, logs.
+
+Training metadata + vectors are stored in SQLite (ready to migrate to Postgres/pgvector).
 
 ---
 

@@ -4,44 +4,66 @@
 <div class="page-head">
   <div>
     <h1>Train AI</h1>
-    <p>Add store knowledge, tone, and rules. The chatbot uses this in every reply.</p>
+    <p>RAG knowledge base — brand voice, FAQs, and indexed store content.</p>
   </div>
 </div>
 
 {% if flash %}<div class="flash">{{ flash }}</div>{% endif %}
 {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
 
+<div class="grid">
+  <div class="card"><div class="stat-label">Sources</div><div class="stat-value">{{ rag.sources }}</div></div>
+  <div class="card"><div class="stat-label">Indexed</div><div class="stat-value">{{ rag.indexed }}</div></div>
+  <div class="card"><div class="stat-label">Chunks</div><div class="stat-value">{{ rag.chunks }}</div></div>
+</div>
+
 <div class="card">
-  <h2 style="margin:0 0 12px;font-size:16px;">Tone & instructions</h2>
+  <h2 style="margin:0 0 12px;font-size:16px;">Brand voice</h2>
   <form method="post" action="/app/{{ store_id }}/train/settings">
     <label for="tone">Brand tone / voice</label>
-    <textarea id="tone" name="tone" placeholder="Friendly, concise, helpful. Use Indian English. Never mention competitors.">{{ settings.tone }}</textarea>
+    <textarea id="tone" name="tone" placeholder="Friendly, concise, helpful.">{{ settings.tone }}</textarea>
     <label for="instructions">Standing instructions</label>
-    <textarea id="instructions" name="instructions" placeholder="Always ask for order number + email for tracking. Free shipping over ₹999. Returns within 7 days.">{{ settings.instructions }}</textarea>
-    <button class="btn" type="submit">Save settings</button>
+    <textarea id="instructions" name="instructions" placeholder="Always ask for order number + email for tracking.">{{ settings.instructions }}</textarea>
+    <button class="btn" type="submit">Save voice settings</button>
   </form>
 </div>
 
 <div class="card">
-  <h2 style="margin:0 0 12px;font-size:16px;">Add knowledge</h2>
+  <h2 style="margin:0 0 12px;font-size:16px;">Quick actions</h2>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+    <a class="btn secondary" href="/app/{{ store_id }}/train/sources">Knowledge sources</a>
+    <a class="btn secondary" href="/app/{{ store_id }}/train/sync">Sync &amp; reindex</a>
+    <a class="btn secondary" href="/app/{{ store_id }}/train/search">Search testing</a>
+    <a class="btn secondary" href="/app/{{ store_id }}/train/logs">Training logs</a>
+    {% if tenant.platform == 'shopify' %}
+    <form method="post" action="/app/{{ store_id }}/train/sync/shopify" style="display:inline;">
+      <button class="btn" type="submit">Sync Shopify catalog</button>
+    </form>
+    {% endif %}
+  </div>
+  <p class="muted" style="margin-top:12px;">Chat answers use semantic retrieval (top matching chunks), not fine-tuning.</p>
+</div>
+
+<div class="card">
+  <h2 style="margin:0 0 12px;font-size:16px;">Add FAQ / custom knowledge</h2>
   <form method="post" action="/app/{{ store_id }}/train/knowledge">
     <label for="entry_type">Type</label>
     <select id="entry_type" name="entry_type">
       <option value="faq">FAQ</option>
       <option value="policy">Policy</option>
       <option value="rule">Rule</option>
-      <option value="note">Note</option>
+      <option value="note">Custom note</option>
     </select>
     <label for="title">Title</label>
     <input id="title" name="title" required placeholder="Return policy" />
     <label for="content">Content</label>
-    <textarea id="content" name="content" required placeholder="Customers can return unused items within 7 days of delivery..."></textarea>
-    <button class="btn" type="submit">Add entry</button>
+    <textarea id="content" name="content" required placeholder="Customers can return unused items within 7 days..."></textarea>
+    <button class="btn" type="submit">Add &amp; index</button>
   </form>
 </div>
 
 <div class="card">
-  <h2 style="margin:0 0 12px;font-size:16px;">Knowledge base</h2>
+  <h2 style="margin:0 0 12px;font-size:16px;">Legacy knowledge entries</h2>
   {% if entries %}
   <table>
     <thead><tr><th>Type</th><th>Title</th><th>Content</th><th></th></tr></thead>
@@ -61,7 +83,7 @@
     </tbody>
   </table>
   {% else %}
-  <p class="muted">No knowledge entries yet. Add FAQs and policies above.</p>
+  <p class="muted">No FAQ/custom entries yet.</p>
   {% endif %}
 </div>
 {% endblock %}

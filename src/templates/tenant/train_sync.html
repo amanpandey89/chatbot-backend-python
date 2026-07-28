@@ -1,0 +1,57 @@
+{% extends "tenant/base.html" %}
+{% block title %}Sync & reindex{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Sync &amp; reindex</h1>
+    <p>Background jobs for catalog sync, crawl, and embedding rebuild.</p>
+  </div>
+  <a class="btn secondary" href="/app/{{ store_id }}/train">← Train AI</a>
+</div>
+{% if flash %}<div class="flash">{{ flash }}</div>{% endif %}
+
+<div class="card">
+  <h2 style="margin:0 0 12px;font-size:16px;">Start a job</h2>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+    {% if tenant.platform == 'shopify' %}
+    <form method="post" action="/app/{{ store_id }}/train/sync/shopify">
+      <button class="btn" type="submit">Full Shopify sync</button>
+    </form>
+    {% endif %}
+    <form method="post" action="/app/{{ store_id }}/train/sync/rebuild">
+      <button class="btn secondary" type="submit">Rebuild embeddings</button>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin:0 0 12px;font-size:16px;">Website crawler</h2>
+  <form method="post" action="/app/{{ store_id }}/train/sync/crawl">
+    <label for="seed_urls">Seed URLs (one per line)</label>
+    <textarea id="seed_urls" name="seed_urls" placeholder="https://your-store.com/pages/shipping">{{ rag_settings.crawler_seed_urls }}</textarea>
+    <button class="btn" type="submit">Crawl &amp; index</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin:0 0 12px;font-size:16px;">Recent jobs</h2>
+  {% if jobs %}
+  <table>
+    <thead><tr><th>Type</th><th>Status</th><th>Progress</th><th>Totals</th><th>Created</th></tr></thead>
+    <tbody>
+      {% for j in jobs %}
+      <tr>
+        <td>{{ j.job_type }}</td>
+        <td><span class="pill">{{ j.status }}</span></td>
+        <td>{{ j.progress_pct }}%</td>
+        <td class="mono muted">{{ j.totals }}</td>
+        <td class="muted">{{ fmt(j.created_at) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No sync jobs yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

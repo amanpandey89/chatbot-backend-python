@@ -1,0 +1,43 @@
+{% extends "tenant/base.html" %}
+{% block title %}Search test{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Search testing</h1>
+    <p>Test semantic retrieval without sending a chat message.</p>
+  </div>
+  <a class="btn secondary" href="/app/{{ store_id }}/train">← Train AI</a>
+</div>
+{% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+
+<div class="card">
+  <form method="post" action="/app/{{ store_id }}/train/search">
+    <label for="query">Query</label>
+    <input id="query" name="query" required value="{{ query or '' }}" placeholder="What is your return policy?" />
+    <button class="btn" type="submit">Retrieve chunks</button>
+  </form>
+</div>
+
+{% if results is not none %}
+<div class="card">
+  <h2 style="margin:0 0 12px;font-size:16px;">Results ({{ results|length }})</h2>
+  {% if results %}
+  <table>
+    <thead><tr><th>Score</th><th>Type</th><th>Title</th><th>Chunk</th></tr></thead>
+    <tbody>
+      {% for r in results %}
+      <tr>
+        <td class="mono">{{ r.score }}</td>
+        <td><span class="pill">{{ r.source_type }}</span></td>
+        <td>{{ r.title }}</td>
+        <td class="muted">{{ r.content[:280] }}{% if r.content|length > 280 %}…{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No matching chunks. Index content first.</p>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}
