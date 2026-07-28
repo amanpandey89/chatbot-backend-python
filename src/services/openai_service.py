@@ -83,6 +83,7 @@ def build_system_prompt(
     tenant: Optional[dict] = None,
     order_lookup: Optional[dict] = None,
     user_context: Optional[dict] = None,
+    training_block: str = "",
 ) -> str:
     product_summary = build_product_summary(products, answers, user_context)
 
@@ -91,9 +92,13 @@ def build_system_prompt(
     tenant = tenant or {}
     store_name = tenant.get("store_name", "our store")
     store_url = (tenant.get("store_url") or "").rstrip("/")
-    orders_url = (
-        f"{store_url}/my-account/orders/" if store_url else "your account orders page"
-    )
+    platform = (tenant.get("platform") or "woocommerce").lower()
+    if platform == "shopify" and store_url and not store_url.startswith("http"):
+        orders_url = f"https://{store_url}/account"
+    elif store_url:
+        orders_url = f"{store_url}/my-account/orders/"
+    else:
+        orders_url = "your account orders page"
 
     if order_lookup:
         order_lookup_text = json.dumps(order_lookup, indent=2)
@@ -109,6 +114,17 @@ def build_system_prompt(
         else "Customer is a GUEST — prefer cookie / browsing preference signals."
     )
 
+    training_section = ""
+    if (training_block or "").strip():
+        training_section = f"""
+
+    MERCHANT AI TRAINING (highest priority for store policies, FAQs, tone, and rules):
+    {training_block.strip()}
+    - Prefer these trained facts over generic assumptions.
+    - For FAQs/policies, answer from this training when relevant.
+    - Keep the brand tone if provided.
+"""
+
     system_prompt = f"""You are the official shopping assistant for {store_name}, an online ecommerce store.
     You help customers with product recommendations AND store support (orders, tracking, returns, accessories).
 
@@ -116,7 +132,7 @@ def build_system_prompt(
     - Store name: {store_name}
     - Store URL: {store_url or "not available"}
     - Orders / tracking page: {orders_url}
-
+{training_section}
     AVAILABLE PRODUCTS IN STORE:
     {product_summary}
 
@@ -127,7 +143,7 @@ def build_system_prompt(
     {user_context_text}
     PERSONALIZATION MODE: {personalization_note}
 
-    LIVE ORDER LOOKUP RESULT (from WooCommerce — trust this as source of truth):
+    LIVE ORDER LOOKUP RESULT (from store order API — trust this as source of truth):
     {order_lookup_text}
 
     YOUR BEHAVIOUR:
@@ -148,8 +164,8 @@ def build_system_prompt(
        - Confirm you can help with returns.
        - Ask for order number and which item they want to return.
        - If LIVE ORDER LOOKUP RESULT has found=true, acknowledge that order and its items while explaining the return steps.
-       - Briefly explain a typical return flow (request return → pack item → use return label / drop-off → refund after inspection).
-    4. Shipping / delivery questions: give clear, helpful guidance; use LIVE ORDER LOOKUP RESULT when available.
+       - Use MERCHANT AI TRAINING return/shipping policies when present; otherwise briefly explain a typical return flow.
+    4. Shipping / delivery questions: give clear, helpful guidance; use LIVE ORDER LOOKUP RESULT and training when available.
     5. Keep support replies as plain conversational text only — no JSON.
 
     B) PRODUCT RECOMMENDATIONS:
@@ -216,12 +232,23 @@ async def get_recommendation(
     order_lookup: Optional[dict] = None,
 ) -> str:
 
+    training_block = ""
+    store_id = (tenant or {}).get("store_id") or session.get("store_id")
+    if store_id:
+        try:
+            from src.services.training import build_training_prompt_block
+
+            training_block = build_training_prompt_block(store_id)
+        except Exception as e:
+            print(f"Training prompt skipped: {e}")
+
     system_prompt = build_system_prompt(
         products,
         session.get("answers") or {},
         tenant,
         order_lookup,
         session.get("user_context") or {},
+        training_block=training_block,
     )
 
     messages = cast(

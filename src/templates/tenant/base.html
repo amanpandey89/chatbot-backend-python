@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}Dashboard{% endblock %} · {{ tenant.store_name if tenant else 'Store' }}</title>
+  <link rel="icon" href="/static/logo.png" type="image/png" />
+  <style>
+    :root {
+      --bg: #141210; --sidebar: #1b1816; --panel: #221e1b; --panel-2: #2a2521;
+      --text: #f4f1ec; --muted: #a89f96; --accent: #4fd18a; --accent-2: #7ee0ad;
+      --danger: #ff6b7a; --border: rgba(255,255,255,0.08);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    a { color: inherit; text-decoration: none; }
+    .shell { display: flex; min-height: 100vh; }
+    .sidebar {
+      width: 240px; background: linear-gradient(180deg, #211d1a, var(--sidebar));
+      border-right: 1px solid var(--border); padding: 18px 12px; display: flex; flex-direction: column; gap: 14px;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; padding: 6px 8px; }
+    .brand img { width: 36px; height: 36px; border-radius: 10px; object-fit: contain; background: rgba(255,255,255,.04); border: 1px solid var(--border); padding: 3px; }
+    .brand-text { font-weight: 700; font-size: 14px; }
+    .brand-sub { color: var(--muted); font-size: 11px; }
+    .side-nav { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+    .side-link { padding: 10px 12px; border-radius: 10px; color: var(--muted); font-size: 13px; font-weight: 600; }
+    .side-link:hover { background: rgba(255,255,255,.05); color: var(--text); }
+    .side-link.active { background: rgba(79,209,138,.14); color: #c9f8dd; }
+    .main { flex: 1; padding: 24px; min-width: 0; }
+    .page-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
+    .page-head h1 { margin: 0 0 4px; font-size: 22px; }
+    .page-head p { margin: 0; color: var(--muted); font-size: 13px; }
+    .card {
+      background: linear-gradient(180deg, var(--panel), var(--panel-2));
+      border: 1px solid var(--border); border-radius: 16px; padding: 18px; margin-bottom: 14px;
+    }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
+    @media (max-width: 900px) {
+      .shell { flex-direction: column; }
+      .sidebar { width: 100%; height: auto; }
+      .side-nav { flex-direction: row; flex-wrap: wrap; }
+      .grid { grid-template-columns: 1fr; }
+    }
+    .stat-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+    .stat-value { font-size: 24px; font-weight: 700; margin-top: 6px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: top; }
+    th { color: var(--muted); font-size: 11px; text-transform: uppercase; }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; border: none; border-radius: 10px;
+      padding: 9px 14px; cursor: pointer; font-weight: 600; font-size: 13px; font-family: inherit;
+      background: var(--accent); color: #102418;
+    }
+    .btn.secondary { background: rgba(255,255,255,.08); color: var(--text); }
+    .btn.danger { background: rgba(255,107,122,.2); color: #ffb3bb; }
+    .btn.small { padding: 6px 10px; font-size: 12px; }
+    label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+    input, select, textarea {
+      width: 100%; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--border);
+      background: rgba(0,0,0,.25); color: var(--text); font-size: 14px; margin-bottom: 12px; font-family: inherit;
+    }
+    textarea { min-height: 100px; resize: vertical; }
+    .flash { margin-bottom: 12px; padding: 11px 12px; border-radius: 10px; background: rgba(79,209,138,.12); color: #c9f8dd; border: 1px solid rgba(79,209,138,.25); }
+    .flash.error { background: rgba(255,107,122,.12); color: #ffc2c9; border-color: rgba(255,107,122,.25); }
+    .muted { color: var(--muted); }
+    .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+    .pill { display: inline-flex; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: rgba(79,209,138,.15); color: #9aecc0; }
+    .bubble { max-width: 85%; padding: 10px 12px; border-radius: 12px; margin: 8px 0; white-space: pre-wrap; font-size: 13px; line-height: 1.45; }
+    .bubble.user { background: rgba(79,209,138,.18); margin-left: auto; }
+    .bubble.assistant { background: rgba(255,255,255,.06); }
+    .chat-thread { display: flex; flex-direction: column; gap: 4px; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <img src="/static/logo.png" alt="" width="36" height="36" />
+        <div>
+          <div class="brand-text">{{ tenant.store_name if tenant else 'Store' }}</div>
+          <div class="brand-sub">Merchant dashboard</div>
+        </div>
+      </div>
+      <nav class="side-nav">
+        <a class="side-link {% if active_nav == 'overview' %}active{% endif %}" href="/app/{{ store_id }}">Overview</a>
+        <a class="side-link {% if active_nav == 'chats' %}active{% endif %}" href="/app/{{ store_id }}/chats">Chats</a>
+        <a class="side-link {% if active_nav == 'train' %}active{% endif %}" href="/app/{{ store_id }}/train">Train AI</a>
+        <a class="side-link {% if active_nav == 'settings' %}active{% endif %}" href="/app/{{ store_id }}/settings">Settings</a>
+      </nav>
+      <form method="post" action="/app/{{ store_id }}/logout">
+        <button class="btn secondary" type="submit" style="width:100%;">Logout</button>
+      </form>
+    </aside>
+    <main class="main">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</body>
+</html>

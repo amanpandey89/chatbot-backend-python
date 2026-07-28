@@ -1,0 +1,31 @@
+{% extends "tenant/base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Settings</h1>
+    <p>API key for WordPress plugin / integrations.</p>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin:0 0 10px;font-size:16px;">Tenant API key</h2>
+  <p class="muted">Use these headers from WordPress (or any client) to manage training via API:</p>
+  <p class="mono" style="background:rgba(0,0,0,.25);padding:12px;border-radius:10px;border:1px solid var(--border);">
+    X-Store-Id: {{ store_id }}<br/>
+    X-Tenant-Key: {{ api_key }}
+  </p>
+  <p class="muted" style="margin-top:12px;">Examples:</p>
+  <pre class="mono" style="white-space:pre-wrap;background:rgba(0,0,0,.25);padding:12px;border-radius:10px;border:1px solid var(--border);">GET  {{ backend }}/api/tenant/{{ store_id }}/knowledge
+PUT  {{ backend }}/api/tenant/{{ store_id }}/settings
+POST {{ backend }}/api/tenant/{{ store_id }}/knowledge</pre>
+</div>
+
+<div class="card">
+  <h2 style="margin:0 0 10px;font-size:16px;">Embed</h2>
+  <p class="muted">Theme app embed Backend URL:</p>
+  <p class="mono">{{ backend }}</p>
+  <p class="muted">Store ID:</p>
+  <p class="mono">{{ store_id }}</p>
+</div>
+{% endblock %}

@@ -6,6 +6,12 @@
         "consumer_key": "ck_03b449c1dad35a8634872bdeef454aabb886b83a",
         "consumer_secret": "cs_f5647aeb62298ebf8608040e464b530ea87f8493"
     },
+    "demo-store.myshopify.com": {
+        "platform": "shopify",
+        "store_name": "Demo",
+        "store_url": "demo-store.myshopify.com",
+        "access_token": "x"
+    },
     "swagdealscollection": {
         "platform": "woocommerce",
         "store_name": "WordPress Demo",

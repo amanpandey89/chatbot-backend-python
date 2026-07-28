@@ -350,6 +350,9 @@ def admin_store_new(
         )
 
     register_tenant(store_id, payload, active=True)
+    from src.services.tenant_auth import ensure_tenant_api_key
+
+    ensure_tenant_api_key(store_id)
     return _flash_redirect(f"/admin/stores/{store_id}", "Store connected successfully.")
 
 
@@ -362,6 +365,13 @@ def admin_store_detail(request: Request, store_id: str):
     store = get_tenant(store_id, include_inactive=True, include_secrets=False)
     if not store:
         return _flash_redirect("/admin/stores", "Store not found.")
+
+    from src.services.tenant_auth import ensure_tenant_api_key
+
+    try:
+        tenant_api_key = ensure_tenant_api_key(store_id)
+    except ValueError:
+        tenant_api_key = ""
 
     stats = tenant_stats()
     backend = str(request.base_url).rstrip("/")
@@ -379,6 +389,7 @@ def admin_store_detail(request: Request, store_id: str):
             "session_count": (stats.get("sessions_by_store") or {}).get(store_id, 0),
             "updated_label": _format_ts(store.get("updated_at")),
             "embed_snippet": embed,
+            "tenant_api_key": tenant_api_key,
             "flash": flash,
             "active_nav": "stores",
         },

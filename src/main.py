@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from fastapi import Request
-from src.routes import register, session, products, chat, admin, shopify_app
+from src.routes import register, session, products, chat, admin, shopify_app, tenant_api, tenant_dashboard
 from src.services.store import register_tenant, get_tenant, migrate_tenants_from_json, tenant_stats
 
 
@@ -78,8 +78,10 @@ app.include_router(register.router, prefix="/api")
 app.include_router(session.router, prefix="/api")
 app.include_router(products.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
+app.include_router(tenant_api.router, prefix="/api")
 app.include_router(admin.router)
 app.include_router(shopify_app.router)
+app.include_router(tenant_dashboard.router)
 
 templates = Jinja2Templates(directory="src/templates")
 

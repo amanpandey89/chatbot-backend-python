@@ -25,6 +25,7 @@ async def chat(body: ChatRequest):
         raise HTTPException(
             status_code=404, detail="Store not found. Please register first."
         )
+    tenant = {**tenant, "store_id": body.store_id}
 
     session = get_session(body.session_id)
     if not session:

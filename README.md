@@ -89,11 +89,25 @@ Store ID for Shopify tenants is the shop domain (`your-store.myshopify.com`).
 
 ---
 
-## Admin Dashboard
+## Train AI & merchant dashboard
 
-- URL: `https://your-backend/admin`
-- Overview by platform, enable/disable/delete stores, manual add, Shopify OAuth install
-- SQLite: `data/app.db` (`SESSIONS_DB` / `APP_DB`)
+Each store gets its own merchant dashboard:
+
+- URL: `/app/{store_id}` (Shopify opens this automatically after install)
+- **Train AI** — tone, standing instructions, FAQs / policies / rules
+- **Chats** — view customer conversation history
+- **Settings** — tenant API key for WordPress / integrations
+
+Training is stored in SQLite and injected into the OpenAI system prompt on every chat.
+
+### WordPress / API access
+
+```http
+X-Store-Id: your-store-id
+X-Tenant-Key: <from merchant Settings>
+```
+
+Endpoints under `/api/tenant/{store_id}/...` for settings, knowledge CRUD, and chats.
 
 ---
 
@@ -102,8 +116,9 @@ Store ID for Shopify tenants is the shop domain (`your-store.myshopify.com`).
 Use the plugin in `wordpress-plugin/ai-shopping-assistant/` (copy into `wp-content/plugins/` and activate).
 
 1. Open **WP Admin → AI Assistant**
-2. Set **Backend URL** and **Store ID**
-3. Optionally edit quick replies, visibility, and personalized picks
+2. Set **Backend URL**, **Store ID**, and **Tenant API key** (from `/admin/stores/{id}` or `/app/{id}/settings`)
+3. Open **AI Assistant → Train AI** to set tone, instructions, FAQs / policies
+4. Optionally edit quick replies, visibility, and personalized picks
 
 ---
 
