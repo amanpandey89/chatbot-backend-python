@@ -1,0 +1,70 @@
+{% comment %}
+  App embed: loads the shared chatbot.js widget from your Python backend.
+  Enable in Online Store → Themes → Customize → App embeds.
+{% endcomment %}
+
+{% if block.settings.enabled %}
+  {% assign backend = block.settings.backend_url | strip %}
+  {% if backend != blank %}
+    <script>
+      window.CB_CART = {
+        enabled: {{ block.settings.enable_add_to_cart | json }},
+        platform: 'shopify',
+        ajaxUrl: '/cart/add.js'
+      };
+      {% if block.settings.quick_replies != blank %}
+      window.CB_QUICK_REPLIES = {{ block.settings.quick_replies | split: '|' | json }};
+      {% endif %}
+    </script>
+    <script
+      src="{{ backend }}/static/chatbot.js"
+      data-store-id="{{ shop.permanent_domain }}"
+      data-backend-url="{{ backend }}"
+      {% if block.settings.currency_symbol != blank %}
+      data-currency="{{ block.settings.currency_symbol | escape }}"
+      {% endif %}
+      defer
+    ></script>
+  {% endif %}
+{% endif %}
+
+{% schema %}
+{
+  "name": "AI Shopping Chat",
+  "target": "body",
+  "settings": [
+    {
+      "type": "checkbox",
+      "id": "enabled",
+      "label": "Enable chatbot",
+      "default": true
+    },
+    {
+      "type": "text",
+      "id": "backend_url",
+      "label": "Backend URL",
+      "info": "Your Railway / FastAPI public URL, e.g. https://your-app.up.railway.app (no trailing slash)",
+      "default": "https://YOUR_BACKEND_URL"
+    },
+    {
+      "type": "text",
+      "id": "currency_symbol",
+      "label": "Currency symbol (optional)",
+      "default": "$"
+    },
+    {
+      "type": "checkbox",
+      "id": "enable_add_to_cart",
+      "label": "Enable Add to cart on product cards",
+      "default": true
+    },
+    {
+      "type": "textarea",
+      "id": "quick_replies",
+      "label": "Quick replies",
+      "info": "Pipe-separated suggestions, e.g. Track my order|Show bestsellers|Help me find a gift",
+      "default": "Track my order|Show bestsellers|Help me find a gift"
+    }
+  ]
+}
+{% endschema %}

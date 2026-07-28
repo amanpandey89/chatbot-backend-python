@@ -8,16 +8,17 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from src.routes import register, session, products, chat
-from src.services.store import register_tenant, get_tenant
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
+from fastapi import Request
+from src.routes import register, session, products, chat, admin, shopify_app
+from src.services.store import register_tenant, get_tenant, migrate_tenants_from_json, tenant_stats
 
 
-# ── Lifespan — runs on startup and shutdown ──────────────────────────────
-# This is the modern replacement for @app.on_event("startup")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    migrate_tenants_from_json()
 
-    # ── STARTUP ────────────────────────────────────────────────────────
     store_id = os.getenv("STORE_ID")
     store_url = os.getenv("WC_STORE_URL")
     consumer_key = os.getenv("WC_CONSUMER_KEY")
@@ -35,6 +36,7 @@ async def lifespan(app: FastAPI):
         register_tenant(
             store_id,
             {
+                "platform": "woocommerce",
                 "store_url": store_url.rstrip("/"),
                 "consumer_key": consumer_key,
                 "consumer_secret": consumer_secret,
@@ -42,8 +44,7 @@ async def lifespan(app: FastAPI):
             },
         )
 
-        # Verify it was saved correctly
-        saved = get_tenant(store_id)
+        saved = get_tenant(store_id, include_inactive=True)
         if saved:
             print(f"✓ Store auto-registered successfully")
             print(f"✓ store_id : {store_id}")
@@ -55,16 +56,17 @@ async def lifespan(app: FastAPI):
         print("  Make sure STORE_ID, WC_STORE_URL, WC_CONSUMER_KEY,")
         print("  WC_CONSUMER_SECRET are all set in your .env file")
 
+    print(f"Admin dashboard : /admin")
+    print(f"Admin username  : {os.getenv('ADMIN_USERNAME', 'admin')}")
+    print(f"Shopify install : /shopify/install?shop=your-store.myshopify.com")
     print("─" * 40)
 
-    yield  # server runs here
+    yield
 
-    # ── SHUTDOWN ───────────────────────────────────────────────────────
     print("Server shutting down...")
 
 
-# Pass lifespan to FastAPI
-app = FastAPI(title="WooCommerce Chatbot API", lifespan=lifespan)
+app = FastAPI(title="AI Shopping Assistant API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
@@ -76,11 +78,27 @@ app.include_router(register.router, prefix="/api")
 app.include_router(session.router, prefix="/api")
 app.include_router(products.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
+app.include_router(admin.router)
+app.include_router(shopify_app.router)
+
+templates = Jinja2Templates(directory="src/templates")
 
 
-@app.get("/")
-def root():
-    return {"message": "Chatbot API is running"}
+@app.get("/", response_class=HTMLResponse)
+def root(request: Request):
+    stats = tenant_stats()
+    openai_set = bool(os.getenv("OPENAI_API_KEY"))
+    return templates.TemplateResponse(
+        request,
+        "home.html",
+        {
+            "status": "Running",
+            "health": "OK",
+            "total_stores": stats.get("total_stores", 0),
+            "active_stores": stats.get("active_stores", 0),
+            "openai_status": "Configured" if openai_set else "Missing",
+        },
+    )
 
 
 @app.get("/health")
@@ -88,7 +106,6 @@ def health():
     return {"status": "ok"}
 
 
-# ── Debug route — confirms what is in memory right now ──────────────────
 @app.get("/debug-env")
 def debug_env():
     return {
@@ -102,4 +119,8 @@ def debug_env():
         ),
         "WC_CONSUMER_SECRET": "set" if os.getenv("WC_CONSUMER_SECRET") else "MISSING",
         "OPENAI_API_KEY": "set" if os.getenv("OPENAI_API_KEY") else "MISSING",
+        "ADMIN_USERNAME": os.getenv("ADMIN_USERNAME", "admin"),
+        "SHOPIFY_API_KEY": "set" if os.getenv("SHOPIFY_API_KEY") else "MISSING",
+        "SHOPIFY_API_SECRET": "set" if os.getenv("SHOPIFY_API_SECRET") else "MISSING",
+        "APP_URL": os.getenv("APP_URL") or "MISSING",
     }

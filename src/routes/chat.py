@@ -3,7 +3,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from src.services.store import get_tenant, get_session, add_message, set_user_context
-from src.services.woocommerce import fetch_products, lookup_order_status
+from src.services.catalog import fetch_products, lookup_order_status
 from src.services.openai_service import get_recommendation
 from src.services.user_context import merge_user_context
 

@@ -1,5 +1,6 @@
 # src/services/openai_service.py
 import json
+import os
 import re
 from typing import Optional, cast
 from openai import AsyncOpenAI
@@ -7,8 +8,19 @@ from openai.types.chat import ChatCompletionMessageParam
 from src.services.store import Session
 from src.services.user_context import preference_score
 
-# Initialize client — reads OPENAI_API_KEY from .env automatically
-client = AsyncOpenAI()
+_client: Optional[AsyncOpenAI] = None
+
+
+def get_openai_client() -> AsyncOpenAI:
+    global _client
+    if _client is None:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "OPENAI_API_KEY is missing. Add it to your .env file and restart the server."
+            )
+        _client = AsyncOpenAI(api_key=api_key)
+    return _client
 
 
 def build_product_summary(
@@ -217,7 +229,7 @@ async def get_recommendation(
         [{"role": "system", "content": system_prompt}, *session["messages"]],
     )
 
-    response = await client.chat.completions.create(
+    response = await get_openai_client().chat.completions.create(
         model="gpt-4o-mini", max_tokens=1024, temperature=0.7, messages=messages
     )
 

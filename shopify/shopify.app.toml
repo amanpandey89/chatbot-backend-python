@@ -1,0 +1,25 @@
+# Shopify app config for CLI (`shopify app deploy` / `shopify app dev`).
+# Create the app in Partners, then fill client_id and update application_url.
+
+name = "AI Shopping Assistant"
+client_id = "YOUR_SHOPIFY_API_KEY"
+application_url = "https://YOUR_BACKEND_URL"
+embedded = false
+
+[access_scopes]
+scopes = "read_products,read_orders,read_customers"
+
+[auth]
+redirect_urls = [
+  "https://YOUR_BACKEND_URL/shopify/callback"
+]
+
+[webhooks]
+api_version = "2024-10"
+
+  [[webhooks.subscriptions]]
+  topics = ["app/uninstalled"]
+  uri = "/shopify/webhooks/app-uninstalled"
+
+[pos]
+embedded = false

@@ -1,0 +1,73 @@
+{% extends "admin/base.html" %}
+{% block title %}Overview{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Overview</h1>
+    <p>Monitor connected stores and chatbot activity.</p>
+  </div>
+  <div class="actions">
+    <a class="btn secondary" href="/admin/shopify">Install Shopify</a>
+    <a class="btn" href="/admin/stores/new">Add store</a>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <div class="stat-label">Total stores</div>
+    <div class="stat-value">{{ stats.total_stores }}</div>
+    <div class="stat-sub">{{ stats.active_stores }} active</div>
+  </div>
+  <div class="card">
+    <div class="stat-label">WordPress / Woo</div>
+    <div class="stat-value">{{ stats.by_platform.woocommerce.total if stats.by_platform.woocommerce else 0 }}</div>
+    <div class="stat-sub">{{ stats.by_platform.woocommerce.active if stats.by_platform.woocommerce else 0 }} active</div>
+  </div>
+  <div class="card">
+    <div class="stat-label">Shopify</div>
+    <div class="stat-value">{{ stats.by_platform.shopify.total if stats.by_platform.shopify else 0 }}</div>
+    <div class="stat-sub">{{ stats.by_platform.shopify.active if stats.by_platform.shopify else 0 }} active</div>
+  </div>
+  <div class="card">
+    <div class="stat-label">Chat sessions</div>
+    <div class="stat-value">{{ stats.total_sessions }}</div>
+    <div class="stat-sub">Stored in SQLite</div>
+  </div>
+</div>
+
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:8px;">
+    <h2 style="margin:0;font-size:18px;">Connected stores</h2>
+    <a class="link-accent" href="/admin/stores">View all</a>
+  </div>
+  {% if stores %}
+  <table>
+    <thead>
+      <tr>
+        <th>Store</th>
+        <th>Platform</th>
+        <th>Status</th>
+        <th>Sessions</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in stores[:8] %}
+      <tr>
+        <td>
+          <div><strong>{{ s.store_name }}</strong></div>
+          <div class="muted mono">{{ s.store_id }}</div>
+        </td>
+        <td><span class="pill {{ s.platform }}">{{ s.platform }}</span></td>
+        <td>{% if s.active %}<span class="pill on">Active</span>{% else %}<span class="pill off">Inactive</span>{% endif %}</td>
+        <td>{{ session_counts.get(s.store_id, 0) }}</td>
+        <td><a class="link-accent" href="/admin/stores/{{ s.store_id }}">Manage</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <p class="muted">No stores connected yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

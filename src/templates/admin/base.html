@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}Admin{% endblock %} · AI Shopping Assistant</title>
+  <link rel="icon" href="/static/logo.png" type="image/png" />
+  <style>
+    :root {
+      --bg: #141210;
+      --sidebar: #1b1816;
+      --panel: #221e1b;
+      --panel-2: #2a2521;
+      --text: #f4f1ec;
+      --muted: #a89f96;
+      --accent: #4fd18a;
+      --accent-strong: #3bbb74;
+      --accent-2: #7ee0ad;
+      --ink: #3a322c;
+      --danger: #ff6b7a;
+      --ok: #4fd18a;
+      --border: rgba(255,255,255,0.08);
+      --shadow: 0 12px 40px rgba(0,0,0,0.4);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", ui-sans-serif, system-ui, -apple-system, Roboto, sans-serif;
+      background:
+        radial-gradient(700px 420px at 0% 0%, rgba(79,209,138,0.12), transparent 55%),
+        var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    a { color: inherit; text-decoration: none; }
+    .shell { display: flex; min-height: 100vh; }
+    .sidebar {
+      width: 260px;
+      background: linear-gradient(180deg, #211d1a, var(--sidebar));
+      border-right: 1px solid var(--border);
+      padding: 20px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; padding: 6px 8px 10px; }
+    .brand-logo {
+      width: 42px; height: 42px; border-radius: 12px;
+      object-fit: contain;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      padding: 4px;
+    }
+    .brand-text { font-weight: 700; font-size: 15px; line-height: 1.2; }
+    .brand-sub { color: var(--muted); font-size: 12px; font-weight: 500; }
+    .side-nav { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+    .side-link {
+      display: flex; align-items: center; gap: 10px;
+      padding: 11px 12px; border-radius: 12px;
+      color: var(--muted); font-size: 14px; font-weight: 600;
+    }
+    .side-link:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+    .side-link.active {
+      background: rgba(79,209,138,0.14);
+      color: #c9f8dd;
+      box-shadow: inset 0 0 0 1px rgba(79,209,138,0.28);
+    }
+    .side-footer { border-top: 1px solid var(--border); padding-top: 14px; }
+    .status-chip {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 12px; border-radius: 12px;
+      background: rgba(79,209,138,0.1);
+      border: 1px solid rgba(79,209,138,0.22);
+      color: #c9f8dd; font-size: 12px; font-weight: 600;
+      margin-bottom: 10px;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--ok);
+      box-shadow: 0 0 0 4px rgba(79,209,138,0.18);
+      animation: pulse 1.6s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.65; transform: scale(0.86); }
+    }
+    .user-chip {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px; border-radius: 12px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      margin-bottom: 10px;
+    }
+    .user-chip img {
+      width: 28px; height: 28px; border-radius: 8px; object-fit: contain;
+    }
+    .user-chip .name { font-size: 13px; font-weight: 700; }
+    .user-chip .role { font-size: 11px; color: var(--muted); }
+    .main { flex: 1; min-width: 0; padding: 28px 28px 50px; }
+    .page-head {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      gap: 16px; margin-bottom: 22px; flex-wrap: wrap;
+    }
+    .page-head h1 { margin: 0 0 6px; font-size: 26px; }
+    .page-head p { margin: 0; color: var(--muted); font-size: 14px; }
+    .card {
+      background: linear-gradient(180deg, var(--panel), var(--panel-2));
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 20px;
+      box-shadow: var(--shadow);
+    }
+    .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 22px; }
+    @media (max-width: 1100px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 820px) {
+      .shell { flex-direction: column; }
+      .sidebar { width: 100%; height: auto; position: relative; }
+      .side-nav { flex-direction: row; flex-wrap: wrap; }
+      .grid { grid-template-columns: 1fr; }
+      .main { padding: 18px 16px 40px; }
+    }
+    .stat-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+    .stat-value { font-size: 28px; font-weight: 700; margin-top: 8px; }
+    .stat-sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 12px 10px; border-bottom: 1px solid var(--border); font-size: 14px; vertical-align: middle; }
+    th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+      background: rgba(255,255,255,0.06); color: var(--text);
+    }
+    .pill.woo, .pill.woocommerce { background: rgba(168,159,150,0.18); color: #e5ddd4; }
+    .pill.shopify { background: rgba(79,209,138,0.15); color: #9aecc0; }
+    .pill.magento { background: rgba(255,166,0,0.15); color: #ffd18a; }
+    .pill.on { background: rgba(79,209,138,0.15); color: var(--ok); }
+    .pill.off { background: rgba(255,107,122,0.15); color: var(--danger); }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      border: none; border-radius: 10px; padding: 9px 14px; cursor: pointer;
+      font-weight: 600; font-size: 13px; font-family: inherit;
+      background: var(--accent); color: #102418;
+    }
+    .btn:hover { filter: brightness(1.06); }
+    .btn.secondary { background: rgba(255,255,255,0.08); color: var(--text); }
+    .btn.danger { background: rgba(255,107,122,0.2); color: #ffb3bb; }
+    .btn.small { padding: 6px 10px; font-size: 12px; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .muted { color: var(--muted); }
+    .flash {
+      margin-bottom: 16px; padding: 12px 14px; border-radius: 12px;
+      background: rgba(79,209,138,0.12); color: #c9f8dd; border: 1px solid rgba(79,209,138,0.25);
+    }
+    .flash.error { background: rgba(255,107,122,0.12); color: #ffc2c9; border-color: rgba(255,107,122,0.25); }
+    label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+    input, select, textarea {
+      width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border);
+      background: rgba(0,0,0,0.25); color: var(--text); font-size: 14px; margin-bottom: 14px;
+      font-family: inherit;
+    }
+    input:focus, select:focus, textarea:focus { outline: 2px solid rgba(79,209,138,0.45); border-color: transparent; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+    .detail-grid { display: grid; grid-template-columns: 180px 1fr; gap: 10px 16px; font-size: 14px; }
+    .detail-grid div:nth-child(odd) { color: var(--muted); }
+    form.inline { display: inline; }
+    .section { margin-top: 22px; }
+    .link-accent { color: var(--accent-2); }
+    .link-accent:hover { text-decoration: underline; }
+    .profile-hero {
+      display: flex; align-items: center; gap: 14px;
+      margin-bottom: 20px; padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .profile-hero img {
+      width: 56px; height: 56px; border-radius: 14px;
+      object-fit: contain; background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border); padding: 6px;
+    }
+    .form-divider {
+      border: none; border-top: 1px solid var(--border);
+      margin: 6px 0 18px;
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <img class="brand-logo" src="/static/logo.png" alt="Logo" width="42" height="42" />
+        <div>
+          <div class="brand-text">Shopping Assistant</div>
+          <div class="brand-sub">Admin Console</div>
+        </div>
+      </div>
+
+      <div class="status-chip"><span class="dot"></span> Backend running</div>
+
+      <nav class="side-nav">
+        <a class="side-link {% if active_nav == 'overview' %}active{% endif %}" href="/admin">Overview</a>
+        <a class="side-link {% if active_nav == 'stores' %}active{% endif %}" href="/admin/stores">Stores</a>
+        <a class="side-link {% if active_nav == 'add' %}active{% endif %}" href="/admin/stores/new">Add store</a>
+        <a class="side-link {% if active_nav == 'shopify' %}active{% endif %}" href="/admin/shopify">Install Shopify</a>
+        <a class="side-link {% if active_nav == 'profile' %}active{% endif %}" href="/admin/profile">Profile</a>
+        <a class="side-link" href="/" target="_blank">Public status</a>
+        <a class="side-link" href="/docs" target="_blank">API docs</a>
+      </nav>
+
+      <div class="side-footer">
+        <a class="user-chip" href="/admin/profile" title="Edit profile">
+          <img src="/static/logo.png" alt="" />
+          <div>
+            <div class="name">{{ admin_display_name or 'Admin' }}</div>
+            <div class="role">@{{ admin_username or 'admin' }} · Edit profile</div>
+          </div>
+        </a>
+        <form method="post" action="/admin/logout">
+          <button class="btn secondary" type="submit" style="width:100%;">Logout</button>
+        </form>
+      </div>
+    </aside>
+
+    <main class="main">
+      {% if flash %}<div class="flash">{{ flash }}</div>{% endif %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</body>
+</html>

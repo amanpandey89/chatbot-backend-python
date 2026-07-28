@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from src.services.store import get_tenant, create_session, register_tenant
 from src.services.user_context import normalize_user_context, top_personalized_products
-from src.services.woocommerce import fetch_products
+from src.services.catalog import fetch_products
 
 router = APIRouter()
 
@@ -27,25 +27,34 @@ async def create_new_session(body: SessionRequest):
 
     if "currency_symbol" not in tenant:
         try:
-            store_url = tenant.get("store_url", "")
-            consumer_key = tenant.get("consumer_key", "")
-            consumer_secret = tenant.get("consumer_secret", "")
+            platform = (tenant.get("platform") or "woocommerce").lower()
+            if platform == "shopify":
+                from src.services.shopify_service import fetch_shop_currency_symbol
 
-            if store_url and consumer_key and consumer_secret:
-                async with httpx.AsyncClient() as client:
-                    res = await client.get(
-                        f"{store_url}/wp-json/wc/v3/data/currencies/current",
-                        params={
-                            "consumer_key": consumer_key,
-                            "consumer_secret": consumer_secret,
-                        },
-                        timeout=5.0,
-                    )
-                    if res.status_code == 200:
-                        data = res.json()
-                        symbol = data.get("symbol", "₹")
-                        tenant["currency_symbol"] = html.unescape(symbol)
-                        register_tenant(body.store_id, tenant)
+                symbol = await fetch_shop_currency_symbol(tenant)
+                if symbol:
+                    tenant["currency_symbol"] = symbol
+                    register_tenant(body.store_id, tenant)
+            else:
+                store_url = tenant.get("store_url", "")
+                consumer_key = tenant.get("consumer_key", "")
+                consumer_secret = tenant.get("consumer_secret", "")
+
+                if store_url and consumer_key and consumer_secret:
+                    async with httpx.AsyncClient() as client:
+                        res = await client.get(
+                            f"{store_url}/wp-json/wc/v3/data/currencies/current",
+                            params={
+                                "consumer_key": consumer_key,
+                                "consumer_secret": consumer_secret,
+                            },
+                            timeout=5.0,
+                        )
+                        if res.status_code == 200:
+                            data = res.json()
+                            symbol = data.get("symbol", "₹")
+                            tenant["currency_symbol"] = html.unescape(symbol)
+                            register_tenant(body.store_id, tenant)
         except Exception as e:
             print(f"Error fetching currency from REST API: {e}")
 
