@@ -83,13 +83,14 @@
         </div>
       </div>
       <nav class="side-nav">
-        <a class="side-link {% if active_nav == 'overview' %}active{% endif %}" href="/app/{{ store_id }}">Overview</a>
-        <a class="side-link {% if active_nav == 'chats' %}active{% endif %}" href="/app/{{ store_id }}/chats">Chats</a>
-        <a class="side-link {% if active_nav == 'train' %}active{% endif %}" href="/app/{{ store_id }}/train">Train AI</a>
-        <a class="side-link {% if active_nav == 'sources' %}active{% endif %}" href="/app/{{ store_id }}/train/sources">Knowledge</a>
-        <a class="side-link {% if active_nav == 'sync' %}active{% endif %}" href="/app/{{ store_id }}/train/sync">Sync</a>
-        <a class="side-link {% if active_nav == 'search' %}active{% endif %}" href="/app/{{ store_id }}/train/search">Search test</a>
-        <a class="side-link {% if active_nav == 'settings' %}active{% endif %}" href="/app/{{ store_id }}/settings">Settings</a>
+        {% set q = ('?asa_session=' ~ session_token) if session_token else '' %}
+        <a class="side-link {% if active_nav == 'overview' %}active{% endif %}" href="/app/{{ store_id }}{{ q }}">Overview</a>
+        <a class="side-link {% if active_nav == 'chats' %}active{% endif %}" href="/app/{{ store_id }}/chats{{ q }}">Chats</a>
+        <a class="side-link {% if active_nav == 'train' %}active{% endif %}" href="/app/{{ store_id }}/train{{ q }}">Train AI</a>
+        <a class="side-link {% if active_nav == 'sources' %}active{% endif %}" href="/app/{{ store_id }}/train/sources{{ q }}">Knowledge</a>
+        <a class="side-link {% if active_nav == 'sync' %}active{% endif %}" href="/app/{{ store_id }}/train/sync{{ q }}">Sync</a>
+        <a class="side-link {% if active_nav == 'search' %}active{% endif %}" href="/app/{{ store_id }}/train/search{{ q }}">Search test</a>
+        <a class="side-link {% if active_nav == 'settings' %}active{% endif %}" href="/app/{{ store_id }}/settings{{ q }}">Settings</a>
       </nav>
       <form method="post" action="/app/{{ store_id }}/logout">
         <button class="btn secondary" type="submit" style="width:100%;">Logout</button>
@@ -99,5 +100,31 @@
       {% block content %}{% endblock %}
     </main>
   </div>
+  {% if session_token %}
+  <script>
+    (function () {
+      var t = {{ session_token|tojson }};
+      if (!t) return;
+      function withSession(url) {
+        try {
+          var u = new URL(url, window.location.origin);
+          if (!u.pathname.startsWith('/app/')) return url;
+          if (u.searchParams.has('asa_session')) return url;
+          u.searchParams.set('asa_session', t);
+          return u.pathname + u.search + u.hash;
+        } catch (e) { return url; }
+      }
+      document.querySelectorAll('a[href^="/app/"]').forEach(function (a) {
+        a.setAttribute('href', withSession(a.getAttribute('href')));
+      });
+      document.querySelectorAll('form[action^="/app/"], form:not([action])').forEach(function (f) {
+        var action = f.getAttribute('action') || window.location.pathname;
+        if (action.indexOf('/app/') === 0 || !f.getAttribute('action')) {
+          f.setAttribute('action', withSession(action.indexOf('/app/') === 0 ? action : window.location.pathname + window.location.search));
+        }
+      });
+    })();
+  </script>
+  {% endif %}
 </body>
 </html>

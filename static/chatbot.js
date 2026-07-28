@@ -170,7 +170,17 @@
       align-self: flex-start;
       border-bottom-left-radius: 4px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      white-space: normal;
     }
+    .cb-msg-bot p { margin: 0 0 8px; }
+    .cb-msg-bot p:last-child { margin-bottom: 0; }
+    .cb-msg-bot ul, .cb-msg-bot ol {
+      margin: 6px 0 8px;
+      padding-left: 1.2em;
+    }
+    .cb-msg-bot li { margin: 3px 0; }
+    .cb-msg-bot strong { font-weight: 700; }
+    .cb-msg-bot a { color: #6c47ff; text-decoration: underline; }
     .cb-msg-user {
       background: #6c47ff;
       color: white;
@@ -380,6 +390,14 @@
   // ── 5. Helper functions ────────────────────────────────────────────────
 
   // Add a text message bubble to the chat window
+  function escapeHtml(text) {
+    return String(text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
   function formatMessageText(text) {
     if (!text) return '';
     return String(text)
@@ -390,11 +408,84 @@
       .trim();
   }
 
+  // Safe lightweight markdown → HTML for bot replies
+  function formatMessageHtml(text) {
+    let t = formatMessageText(text);
+    t = escapeHtml(t);
+
+    // Links [label](url) or bare https://
+    t = t.replace(
+      /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
+    );
+    t = t.replace(
+      /(^|[\s(])(https?:\/\/[^\s<]+)/g,
+      '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>'
+    );
+
+    // Bold **text** or __text__
+    t = t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    t = t.replace(/__(.+?)__/g, '<strong>$1</strong>');
+
+    // Italic *text* or _text_ (avoid matching inside words for _)
+    t = t.replace(/(^|[^\w*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
+
+    // Convert bullet / numbered blocks to lists
+    const lines = t.split('\n');
+    const out = [];
+    let listType = null; // 'ul' | 'ol'
+
+    function closeList() {
+      if (listType) {
+        out.push(listType === 'ul' ? '</ul>' : '</ol>');
+        listType = null;
+      }
+    }
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const bullet = line.match(/^\s*[-•]\s+(.+)$/);
+      const numbered = line.match(/^\s*(\d+)\.\s+(.+)$/);
+
+      if (bullet) {
+        if (listType !== 'ul') {
+          closeList();
+          out.push('<ul>');
+          listType = 'ul';
+        }
+        out.push('<li>' + bullet[1] + '</li>');
+        continue;
+      }
+      if (numbered) {
+        if (listType !== 'ol') {
+          closeList();
+          out.push('<ol>');
+          listType = 'ol';
+        }
+        out.push('<li>' + numbered[2] + '</li>');
+        continue;
+      }
+
+      closeList();
+      if (line.trim() === '') {
+        out.push('<br>');
+      } else {
+        out.push('<p>' + line + '</p>');
+      }
+    }
+    closeList();
+    return out.join('');
+  }
+
   function addMessage(text, sender) {
     // sender is either 'bot' or 'user'
     const div = document.createElement('div');
     div.className = `cb-msg cb-msg-${sender}`;
-    div.textContent = sender === 'bot' ? formatMessageText(text) : text;
+    if (sender === 'bot') {
+      div.innerHTML = formatMessageHtml(text);
+    } else {
+      div.textContent = text;
+    }
     messagesEl.appendChild(div);
     scrollToBottom();
   }

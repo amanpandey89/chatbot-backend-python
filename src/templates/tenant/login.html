@@ -17,38 +17,45 @@
     }
     label { display: block; font-size: 12px; color: #a89f96; margin-bottom: 6px; }
     input {
-      width: 100%; padding: 11px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,.08);
+      width: 100%; box-sizing: border-box; padding: 11px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,.08);
       background: rgba(0,0,0,.25); color: #f4f1ec; margin-bottom: 12px; font-size: 14px;
     }
     .btn {
       width: 100%; border: none; border-radius: 10px; padding: 11px; background: #4fd18a;
-      color: #102418; font-weight: 700; cursor: pointer;
+      color: #102418; font-weight: 700; cursor: pointer; font-size: 14px;
     }
     .error { margin-bottom: 12px; padding: 10px; border-radius: 10px; background: rgba(255,107,122,.12); color: #ffc2c9; font-size: 13px; }
     .muted { color: #a89f96; font-size: 13px; line-height: 1.5; }
+    .hint { margin-top: 14px; padding: 10px; border-radius: 10px; background: rgba(255,255,255,.04); font-size: 12px; color: #a89f96; line-height: 1.45; }
   </style>
 </head>
 <body>
   <div class="card">
     <h1 style="margin:0 0 8px;font-size:22px;">Merchant login</h1>
-    <p class="muted">Use your store API key from Settings (or open the app from Shopify admin to auto-login).</p>
+    <p class="muted">Paste the Tenant API key from backend Admin → Stores → your shop. Opening the app from Shopify should also auto-login.</p>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
-    <form method="post" action="/app/{{ store_id or 'STORE_ID' }}/login" id="loginForm">
+    <form method="post" action="/app/{{ store_id }}/login" id="loginForm" accept-charset="UTF-8">
       <label for="store_id_input">Store ID</label>
       <input id="store_id_input" name="store_id_display" value="{{ store_id }}" {% if store_id %}readonly{% endif %} placeholder="your-store.myshopify.com" required />
       <label for="tenant_api_key">Tenant API key</label>
-      <input id="tenant_api_key" name="tenant_api_key" type="password" required autocomplete="current-password" />
+      <input id="tenant_api_key" name="tenant_api_key" type="password" required autocomplete="current-password" placeholder="Paste key from Admin store detail" />
       <button class="btn" type="submit">Login</button>
     </form>
+    <div class="hint">
+      In Shopify admin the app runs inside an iframe — after login you stay signed in via a secure session link.
+      Get the key from <strong>Admin → Stores → {{ store_id or 'your shop' }}</strong> (Tenant API key field).
+    </div>
   </div>
   <script>
-    const form = document.getElementById('loginForm');
-    const storeInput = document.getElementById('store_id_input');
-    form.addEventListener('submit', function (e) {
-      const sid = (storeInput.value || '').trim();
-      if (!sid) return;
-      form.action = '/app/' + encodeURIComponent(sid) + '/login';
-    });
+    (function () {
+      var form = document.getElementById('loginForm');
+      var storeInput = document.getElementById('store_id_input');
+      form.addEventListener('submit', function () {
+        var sid = (storeInput.value || '').trim();
+        if (!sid) return;
+        form.action = '/app/' + encodeURIComponent(sid) + '/login';
+      });
+    })();
   </script>
 </body>
 </html>
