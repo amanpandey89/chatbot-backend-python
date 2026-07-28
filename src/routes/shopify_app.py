@@ -193,10 +193,21 @@ def verify_webhook_hmac(raw_body: bytes, hmac_header: str, secret: str) -> bool:
     return hmac.compare_digest(computed, hmac_header or "")
 
 
+def _is_valid_shop(shop: str) -> bool:
+    shop = shopify_store_id(shop or "")
+    if not shop.endswith(".myshopify.com"):
+        return False
+    handle = shop[: -len(".myshopify.com")]
+    return bool(handle) and handle != ""
+
+
 def _begin_oauth(request: Request, shop: str):
     shop = shopify_store_id(shop)
-    if not shop.endswith(".myshopify.com"):
-        raise HTTPException(status_code=400, detail="Invalid shop domain")
+    if not _is_valid_shop(shop):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid shop domain. Use e.g. your-store.myshopify.com",
+        )
 
     state = secrets.token_urlsafe(24)
     _save_oauth_state(state, shop)
@@ -393,8 +404,8 @@ def shopify_version():
     """Quick check that the latest Shopify fix is deployed."""
     return {
         "ok": True,
-        "shopify_handler": "v2-app-open-without-code",
-        "hint": "App URL must be /shopify (not /shopify/callback)",
+        "shopify_handler": "v3-valid-shop-required",
+        "hint": "App URL must be /shopify?shop=your-store.myshopify.com (opened from Shopify admin)",
     }
 
 
@@ -412,7 +423,7 @@ def shopify_app_entry(
     """
     _require_shopify_config()
     shop = _resolve_shop(request, shop)
-    if shop:
+    if shop and _is_valid_shop(shop):
         query = dict(request.query_params)
         # HMAC is present on real Shopify opens; skip only if absent (local tests)
         if hmac and not verify_shopify_hmac(query, _api_secret()):
@@ -424,9 +435,11 @@ def shopify_app_entry(
         f"""<!DOCTYPE html><html><head><title>AI Shopping Assistant</title>
         <style>{_page_styles()}</style></head><body><div class="card">
           <h1>AI Shopping Assistant</h1>
-          <p class="muted">Set Partners <strong>App URL</strong> to <code>{backend}/shopify</code>
+          <p class="muted">Open this app from Shopify admin, or install with a shop domain.</p>
+          <p>Partners <strong>App URL</strong> must be <code>{backend}/shopify</code>
           (not <code>/shopify/callback</code>).</p>
-          <p><a class="btn" href="{backend}/admin/shopify">Open admin install</a></p>
+          <p><a class="btn" href="{backend}/shopify/install?shop=swagdealscollection.myshopify.com">Install swagdealscollection</a></p>
+          <p><a class="btn secondary" href="{backend}/admin/shopify">Admin install help</a></p>
         </div></body></html>"""
     )
 

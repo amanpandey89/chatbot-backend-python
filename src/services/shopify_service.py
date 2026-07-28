@@ -13,9 +13,20 @@ SHOPIFY_API_VERSION = os.getenv("SHOPIFY_API_VERSION", "2024-10")
 def shopify_store_id(shop: str) -> str:
     shop = (shop or "").strip().lower()
     shop = shop.replace("https://", "").replace("http://", "").strip("/")
-    if not shop.endswith(".myshopify.com") and "." not in shop:
-        shop = f"{shop}.myshopify.com"
-    return shop
+    if not shop or shop == ".myshopify.com":
+        return ""
+
+    if shop.endswith(".myshopify.com"):
+        handle = shop[: -len(".myshopify.com")]
+    else:
+        handle = shop
+
+    # Handle must be a simple store subdomain (letters, numbers, hyphens)
+    if not handle or not all(c.isalnum() or c == "-" for c in handle):
+        return ""
+    if not any(c.isalnum() for c in handle):
+        return ""
+    return f"{handle}.myshopify.com"
 
 
 def _admin_base(shop: str) -> str:
