@@ -47,13 +47,13 @@
     <div>Updated</div><div class="muted">{{ updated_label }}</div>
   </div>
   {% if store.platform != 'shopify' %}
-  <p class="muted" style="margin:14px 0 0;">For WordPress: set Backend URL + Store ID in the plugin. Share the <strong>Merchant login</strong> below so they can open Train AI on the dashboard (no Tenant API key in WP).</p>
+  <p class="muted" style="margin:14px 0 0;">For WordPress: merchant creates username/password in the plugin (AI Assistant → Overview) on first setup. Store URL on this tenant should match their site URL.</p>
   {% endif %}
 </div>
 
 <div class="card section">
   <h2 style="margin-top:0;font-size:18px;">Merchant login (dashboard)</h2>
-  <p class="muted">WordPress merchants open Train AI from the merchant dashboard — not inside WP. Set a username/password here and share it with them.</p>
+  <p class="muted">Optional override / reset. WordPress merchants normally create login themselves in the plugin on first install. Use this form to reset a forgotten password.</p>
   <p class="muted">Dashboard URL: <a class="link-accent" href="{{ dashboard_login_url }}" target="_blank" rel="noopener">{{ dashboard_login_url }}</a></p>
   <p style="margin:8px 0 12px;">
     {% if merchant_login_set %}<span class="pill on">Login configured</span>{% else %}<span class="pill off">Not set</span>{% endif %}

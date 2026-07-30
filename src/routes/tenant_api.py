@@ -173,3 +173,54 @@ def api_get_tenant_key(request: Request, store_id: str):
             "X-Tenant-Key": key,
         },
     }
+
+
+class MerchantSetupBody(BaseModel):
+    username: str = Field(..., min_length=3)
+    password: str = Field(..., min_length=8)
+    store_url: str = ""
+
+
+@router.get("/{store_id}/merchant/status")
+def api_merchant_status(store_id: str):
+    """Public: whether WordPress still needs first-time merchant account setup."""
+    from src.services.tenant_auth import merchant_has_password_login
+
+    tenant = get_tenant(store_id, include_inactive=True)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Store not found")
+    return {
+        "success": True,
+        "store_id": store_id,
+        "store_name": tenant.get("store_name") or store_id,
+        "active": bool(tenant.get("active", True)),
+        "login_configured": merchant_has_password_login(store_id),
+    }
+
+
+@router.post("/{store_id}/merchant/setup")
+def api_merchant_setup(store_id: str, body: MerchantSetupBody):
+    """
+    First-time merchant username/password from WordPress (no Tenant API key).
+    Rejected once login already exists — platform admin can reset afterwards.
+    """
+    from src.services.tenant_auth import bootstrap_merchant_credentials
+
+    ok, message = bootstrap_merchant_credentials(
+        store_id,
+        username=body.username,
+        password=body.password,
+        store_url=body.store_url or "",
+    )
+    if not ok:
+        code = 409 if "already exists" in message.lower() else 400
+        if "not found" in message.lower():
+            code = 404
+        raise HTTPException(status_code=code, detail=message)
+    return {
+        "success": True,
+        "message": message,
+        "store_id": store_id,
+        "username": (body.username or "").strip(),
+        "login_url": f"/app/{store_id}/login",
+    }
