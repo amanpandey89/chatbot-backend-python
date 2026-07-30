@@ -80,7 +80,16 @@ def _authed_redirect(store_id: str, path: str = "", request: Optional[Request] =
 
 def _flash_redirect(store_id: str, path: str, message: str, request: Optional[Request] = None):
     resp = _authed_redirect(store_id, path, request=request)
-    resp.set_cookie("asa_tenant_flash", message, max_age=8, path="/")
+    # Cookie values must be Latin-1; strip fancy punctuation that caused 500s.
+    safe = (
+        (message or "")
+        .replace("—", "-")
+        .replace("–", "-")
+        .replace("…", "...")
+        .encode("latin-1", "replace")
+        .decode("latin-1")
+    )[:450]
+    resp.set_cookie("asa_tenant_flash", safe, max_age=12, path="/")
     return resp
 
 
@@ -485,30 +494,36 @@ async def app_train_sync_woocommerce(request: Request, store_id: str):
         return _flash_redirect(
             store_id,
             "train/sync",
-            "WooCommerce sync needs store URL + consumer key/secret on this store (Admin → Stores).",
+            "WordPress sync needs store URL + consumer key/secret on this store (Admin -> Stores).",
         )
-    job = create_job(store_id, "woocommerce_full_sync")
+    job = create_job(store_id, "wordpress_full_sync")
     try:
         items = await collect_woocommerce_knowledge(tenant)
     except Exception as e:
         return _flash_redirect(
             store_id,
             "train/sync",
-            f"WooCommerce sync failed: {e}",
+            f"WordPress sync failed: {e}",
         )
     await run_job(store_id, job["id"], items)
     return _flash_redirect(
         store_id,
         "train/sync",
-        f"WooCommerce sync finished ({len(items)} items). Check Knowledge for products.",
+        f"WordPress sync finished ({len(items)} items). Check Knowledge for products, posts, pages, and more.",
     )
 
 
-@router.post("/{store_id}/train/sync/rebuild")
+@router.api_route("/{store_id}/train/sync/rebuild", methods=["GET", "POST"])
 async def app_train_sync_rebuild(request: Request, store_id: str):
     denied = _require(request, store_id)
     if denied:
         return denied
+    if request.method == "GET":
+        return _flash_redirect(
+            store_id,
+            "train/sync",
+            "Use the Rebuild embeddings button on the Sync page (do not open this URL directly).",
+        )
     from src.knowledge.ingest import list_sources
 
     sources = list_sources(store_id)
@@ -516,10 +531,19 @@ async def app_train_sync_rebuild(request: Request, store_id: str):
         return _flash_redirect(
             store_id,
             "train/sync",
-            "Nothing to rebuild yet — run WooCommerce / Shopify sync (or crawl) first to index products.",
+            "Nothing to rebuild yet - run WordPress / Shopify sync (or crawl) first.",
         )
-    await rebuild_embeddings(store_id)
-    return _flash_redirect(store_id, "train/sync", f"Embeddings rebuilt ({len(sources)} sources).")
+    try:
+        await rebuild_embeddings(store_id)
+    except Exception as e:
+        return _flash_redirect(
+            store_id,
+            "train/sync",
+            f"Rebuild failed: {e}",
+        )
+    return _flash_redirect(
+        store_id, "train/sync", f"Embeddings rebuilt ({len(sources)} sources)."
+    )
 
 
 @router.post("/{store_id}/train/sync/crawl")
