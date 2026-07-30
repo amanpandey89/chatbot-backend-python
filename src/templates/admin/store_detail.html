@@ -36,6 +36,11 @@
     </div>
     <div>Sessions</div><div>{{ session_count }}</div>
     <div>Tenant API key</div><div class="mono">{{ tenant_api_key or '—' }}</div>
+    <div>OpenAI API key</div>
+    <div>
+      {% if openai_key_set %}<span class="pill on">Set</span>{% else %}<span class="pill off">Not set</span>{% endif %}
+      <p class="muted" style="margin:6px 0 0;">Each store uses its own OpenAI key for chat + RAG embeddings.</p>
+    </div>
     <div>Consumer key</div><div class="mono">{{ store.consumer_key or '—' }}</div>
     <div>Consumer secret</div><div class="mono">{{ store.consumer_secret or '—' }}</div>
     <div>Access token</div><div class="mono">{{ store.access_token or '—' }}</div>
@@ -44,6 +49,16 @@
   {% if store.platform != 'shopify' %}
   <p class="muted" style="margin:14px 0 0;">Paste the Tenant API key into <strong>WP Admin → AI Assistant → Tenant API key</strong>, then use <strong>Train AI</strong>.</p>
   {% endif %}
+</div>
+
+<div class="card section">
+  <h2 style="margin-top:0;font-size:18px;">Merchant OpenAI key</h2>
+  <form method="post" action="/admin/stores/{{ store.store_id }}/openai-key">
+    <label for="openai_api_key">OpenAI API key</label>
+    <input id="openai_api_key" name="openai_api_key" type="password" autocomplete="off" placeholder="sk-..." style="width:100%;max-width:480px;" />
+    <p class="muted">Required for chat and Train AI indexing for this tenant. Leave blank to keep the existing key.</p>
+    <button class="btn" type="submit">Save OpenAI key</button>
+  </form>
 </div>
 
 <div class="card section">
