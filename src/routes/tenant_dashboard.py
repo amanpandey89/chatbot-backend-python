@@ -14,10 +14,11 @@ from src.services.tenant_auth import (
     set_tenant_cookie,
     clear_tenant_cookie,
     ensure_tenant_api_key,
-    verify_tenant_api_key,
+    verify_merchant_password,
     create_tenant_session_token,
     app_url_with_session,
     get_store_id_from_request,
+    merchant_has_password_login,
 )
 from src.knowledge import SOURCE_TYPES, overview_stats, list_logs, get_rag_settings, update_rag_settings
 from src.knowledge.ingest import list_sources, delete_source, upsert_and_index_async_prep, index_source_async
@@ -86,10 +87,8 @@ def app_login_picker(request: Request):
 
 @router.get("/{store_id}/login", response_class=HTMLResponse)
 def app_login_page(request: Request, store_id: str):
-    # Already authenticated (cookie or asa_session) → dashboard
     if require_tenant(request, expected_store_id=store_id):
         return _authed_redirect(store_id, request=request)
-    # Ensure a key exists so merchants can log in after Shopify install
     try:
         ensure_tenant_api_key(store_id)
     except Exception:
@@ -97,7 +96,13 @@ def app_login_page(request: Request, store_id: str):
     return _render(
         request,
         "tenant/login.html",
-        {"store_id": store_id, "error": None, "session_token": ""},
+        {
+            "store_id": store_id,
+            "error": None,
+            "username": "",
+            "session_token": "",
+            "has_password_login": merchant_has_password_login(store_id),
+        },
     )
 
 
@@ -105,7 +110,8 @@ def app_login_page(request: Request, store_id: str):
 def app_login(
     request: Request,
     store_id: str,
-    tenant_api_key: str = Form(...),
+    username: str = Form(""),
+    password: str = Form(""),
 ):
     store_id = (store_id or "").strip()
     if not get_tenant(store_id, include_inactive=False):
@@ -115,41 +121,48 @@ def app_login(
             {
                 "store_id": store_id,
                 "error": "Store not found or inactive.",
+                "username": username,
                 "session_token": "",
             },
             status_code=404,
         )
 
-    tenant = get_tenant(store_id, include_inactive=False, include_secrets=True) or {}
-    if not tenant.get("tenant_api_key"):
-        try:
-            ensure_tenant_api_key(store_id)
-            tenant = (
-                get_tenant(store_id, include_inactive=False, include_secrets=True) or {}
-            )
-        except Exception:
-            pass
-
-    key = (tenant_api_key or "").strip()
-    if not key:
+    user = (username or "").strip()
+    pwd = (password or "").strip()
+    if not user or not pwd:
         return _render(
             request,
             "tenant/login.html",
             {
                 "store_id": store_id,
-                "error": "Enter your Tenant API key (from Admin → store detail).",
+                "error": "Enter username and password.",
+                "username": user,
                 "session_token": "",
             },
             status_code=400,
         )
 
-    if not verify_tenant_api_key(store_id, key):
+    if not merchant_has_password_login(store_id):
         return _render(
             request,
             "tenant/login.html",
             {
                 "store_id": store_id,
-                "error": "Invalid API key. Copy the Tenant API key from backend Admin → Stores → this shop.",
+                "error": "Merchant login is not set up yet. Ask your admin to set username/password on this store.",
+                "username": user,
+                "session_token": "",
+            },
+            status_code=400,
+        )
+
+    if not verify_merchant_password(store_id, user, pwd):
+        return _render(
+            request,
+            "tenant/login.html",
+            {
+                "store_id": store_id,
+                "error": "Invalid username or password.",
+                "username": user,
                 "session_token": "",
             },
             status_code=401,

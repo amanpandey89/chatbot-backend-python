@@ -47,8 +47,24 @@
     <div>Updated</div><div class="muted">{{ updated_label }}</div>
   </div>
   {% if store.platform != 'shopify' %}
-  <p class="muted" style="margin:14px 0 0;">Paste the Tenant API key into <strong>WP Admin → AI Assistant → Tenant API key</strong>, then use <strong>Train AI</strong>.</p>
+  <p class="muted" style="margin:14px 0 0;">For WordPress: set Backend URL + Store ID in the plugin. Share the <strong>Merchant login</strong> below so they can open Train AI on the dashboard (no Tenant API key in WP).</p>
   {% endif %}
+</div>
+
+<div class="card section">
+  <h2 style="margin-top:0;font-size:18px;">Merchant login (dashboard)</h2>
+  <p class="muted">WordPress merchants open Train AI from the merchant dashboard — not inside WP. Set a username/password here and share it with them.</p>
+  <p class="muted">Dashboard URL: <a class="link-accent" href="{{ dashboard_login_url }}" target="_blank" rel="noopener">{{ dashboard_login_url }}</a></p>
+  <p style="margin:8px 0 12px;">
+    {% if merchant_login_set %}<span class="pill on">Login configured</span>{% else %}<span class="pill off">Not set</span>{% endif %}
+  </p>
+  <form method="post" action="/admin/stores/{{ store.store_id }}/merchant-login">
+    <label for="merchant_username">Username</label>
+    <input id="merchant_username" name="merchant_username" value="{{ merchant_username }}" required placeholder="store-owner" style="width:100%;max-width:480px;" />
+    <label for="merchant_password">Password</label>
+    <input id="merchant_password" name="merchant_password" type="password" autocomplete="new-password" placeholder="{% if merchant_login_set %}Leave blank to keep current password{% else %}Set a password{% endif %}" style="width:100%;max-width:480px;" />
+    <button class="btn" type="submit">Save merchant login</button>
+  </form>
 </div>
 
 <div class="card section">
@@ -56,7 +72,7 @@
   <form method="post" action="/admin/stores/{{ store.store_id }}/openai-key">
     <label for="openai_api_key">OpenAI API key</label>
     <input id="openai_api_key" name="openai_api_key" type="password" autocomplete="off" placeholder="sk-..." style="width:100%;max-width:480px;" />
-    <p class="muted">Required for chat and Train AI indexing for this tenant. Leave blank to keep the existing key.</p>
+    <p class="muted">Required for chat and Train AI indexing for this tenant.</p>
     <button class="btn" type="submit">Save OpenAI key</button>
   </form>
 </div>
@@ -67,7 +83,7 @@
     <p class="muted">After OAuth, enable the theme app embed: Themes → Customize → App embeds → <strong>AI Shopping Chat</strong>. Set Backend URL to this server.</p>
     <p class="muted">Manual script fallback:</p>
   {% else %}
-    <p class="muted">For WordPress: install the plugin, set Backend URL, Store ID, and Tenant API key above.</p>
+    <p class="muted">For WordPress: install the plugin, set Backend URL and Store ID. Training uses Merchant login → dashboard.</p>
   {% endif %}
   <pre class="mono" style="white-space:pre-wrap;background:rgba(0,0,0,.25);padding:14px;border-radius:12px;border:1px solid var(--border);">{{ embed_snippet }}</pre>
 </div>

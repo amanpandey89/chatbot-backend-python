@@ -93,10 +93,10 @@ Store ID for Shopify tenants is the shop domain (`your-store.myshopify.com`).
 
 Each store gets its own merchant dashboard:
 
-- URL: `/app/{store_id}` (Shopify opens this automatically after install)
+- URL: `/app/{store_id}` (login with merchant username/password; Shopify opens this automatically after install)
 - **Train AI (RAG)** — brand voice, FAQs/custom notes, knowledge sources, sync jobs, search testing, logs
 - **Chats** — view customer conversation history
-- **Settings** — tenant API key for WordPress / integrations
+- **Settings** — OpenAI key and integration keys (for authenticated merchants)
 
 ### RAG knowledge pipeline
 
@@ -104,9 +104,9 @@ Content is **not fine-tuned**. It is ingested, chunked (~650 tokens, 100 overlap
 
 | Source | How it syncs |
 |--------|----------------|
-| WordPress posts/pages/products/categories | Plugin hooks + full sync button → `POST /api/tenant/{id}/rag/ingest` |
+| Website crawl / FAQs / custom / documents | Merchant dashboard + REST APIs |
 | Shopify products/collections/pages/blogs/policies | Merchant **Sync Shopify** + webhooks on create/update/delete |
-| FAQs / custom / documents / website crawl | Dashboard + REST APIs |
+| WooCommerce catalog | Sync from merchant dashboard (or crawl store URL) |
 
 Key APIs under `/api/tenant/{store_id}/rag/...`: overview, sources, ingest, faqs, custom, documents, exclusions, jobs, search/test, rebuild, logs.
 
@@ -118,10 +118,10 @@ Training metadata + vectors are stored in SQLite (ready to migrate to Postgres/p
 
 Use the plugin in `wordpress-plugin/ai-shopping-assistant/` (copy into `wp-content/plugins/` and activate).
 
-1. Open **WP Admin → AI Assistant**
-2. Set **Backend URL**, **Store ID**, and **Tenant API key** (from `/admin/stores/{id}` or `/app/{id}/settings`)
-3. Open **AI Assistant → Train AI** to set tone, instructions, FAQs / policies
-4. Optionally edit quick replies, visibility, and personalized picks
+1. In **Admin → Stores → store detail**, set a **Merchant username/password** and note the Store ID
+2. In **WP Admin → AI Assistant → Settings**, set **Backend URL** and **Store ID**
+3. Open **AI Assistant → Overview** → **Open Merchant Dashboard** and sign in with those credentials
+4. Use the merchant dashboard for **Train AI** (tone, FAQs, knowledge, OpenAI key). The WP plugin only embeds the storefront widget (+ quick replies / visibility)
 
 ---
 

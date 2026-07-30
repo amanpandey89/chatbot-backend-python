@@ -369,12 +369,19 @@ def admin_store_detail(request: Request, store_id: str):
     if not store:
         return _flash_redirect("/admin/stores", "Store not found.")
 
-    from src.services.tenant_auth import ensure_tenant_api_key, tenant_has_openai_key
+    from src.services.tenant_auth import (
+        ensure_tenant_api_key,
+        tenant_has_openai_key,
+        merchant_has_password_login,
+    )
 
     try:
         tenant_api_key = ensure_tenant_api_key(store_id)
     except ValueError:
         tenant_api_key = ""
+
+    full = get_tenant(store_id, include_inactive=True, include_secrets=True) or {}
+    merchant_username = full.get("merchant_username") or ""
 
     stats = tenant_stats()
     backend = str(request.base_url).rstrip("/")
@@ -394,6 +401,9 @@ def admin_store_detail(request: Request, store_id: str):
             "embed_snippet": embed,
             "tenant_api_key": tenant_api_key,
             "openai_key_set": tenant_has_openai_key(store_id),
+            "merchant_username": merchant_username,
+            "merchant_login_set": merchant_has_password_login(store_id),
+            "dashboard_login_url": f"{backend}/app/{store_id}/login",
             "flash": flash,
             "active_nav": "stores",
         },
@@ -421,6 +431,36 @@ def admin_store_openai_key(
         )
     set_tenant_openai_api_key(store_id, key)
     return _flash_redirect(f"/admin/stores/{store_id}", "OpenAI API key saved for this store.")
+
+
+@router.post("/stores/{store_id}/merchant-login")
+def admin_store_merchant_login(
+    request: Request,
+    store_id: str,
+    merchant_username: str = Form(...),
+    merchant_password: str = Form(""),
+):
+    denied = _require_page_auth(request)
+    if denied:
+        return denied
+    if not get_tenant(store_id, include_inactive=True):
+        return _flash_redirect("/admin/stores", "Store not found.")
+    from src.services.tenant_auth import set_merchant_credentials, merchant_has_password_login
+
+    user = (merchant_username or "").strip()
+    pwd = (merchant_password or "").strip()
+    if not user:
+        return _flash_redirect(f"/admin/stores/{store_id}", "Username is required.")
+    if not pwd and not merchant_has_password_login(store_id):
+        return _flash_redirect(
+            f"/admin/stores/{store_id}",
+            "Set a password the first time you create merchant login.",
+        )
+    set_merchant_credentials(store_id, username=user, password=pwd)
+    return _flash_redirect(
+        f"/admin/stores/{store_id}",
+        "Merchant username/password saved. Share these with the store owner.",
+    )
 
 
 @router.post("/stores/{store_id}/toggle")
