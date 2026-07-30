@@ -118,10 +118,11 @@ Training metadata + vectors are stored in SQLite (ready to migrate to Postgres/p
 
 Use the plugin in `wordpress-plugin/ai-shopping-assistant/` (copy into `wp-content/plugins/` and activate).
 
-1. In **Admin → Stores → store detail**, set a **Merchant username/password** and note the Store ID
+1. In **Admin → Stores**, register the WooCommerce store (Store ID + store URL matching the WP site)
 2. In **WP Admin → AI Assistant → Settings**, set **Backend URL** and **Store ID**
-3. Open **AI Assistant → Overview** → **Open Merchant Dashboard** and sign in with those credentials
-4. Use the merchant dashboard for **Train AI** (tone, FAQs, knowledge, OpenAI key). The WP plugin only embeds the storefront widget (+ quick replies / visibility)
+3. Open **AI Assistant → Overview** → **Create merchant account** (username + password, first time only)
+4. Click **Open Merchant Dashboard** and sign in with those credentials
+5. Use the merchant dashboard for **Train AI**. The WP plugin only embeds the storefront widget (+ quick replies / visibility)
 
 ---
 

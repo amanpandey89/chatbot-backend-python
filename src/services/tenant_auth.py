@@ -164,6 +164,72 @@ def merchant_has_password_login(store_id: str) -> bool:
     )
 
 
+def normalize_store_host(url: str) -> str:
+    """Compare store ownership by host (ignore scheme / www / path)."""
+    from urllib.parse import urlparse
+
+    raw = (url or "").strip().lower()
+    if not raw:
+        return ""
+    if "://" not in raw:
+        raw = "https://" + raw
+    parsed = urlparse(raw)
+    host = (parsed.netloc or parsed.path.split("/")[0] or "").strip()
+    if "@" in host:
+        host = host.rsplit("@", 1)[-1]
+    if ":" in host:
+        host = host.split(":", 1)[0]
+    if host.startswith("www."):
+        host = host[4:]
+    return host.rstrip(".")
+
+
+def bootstrap_merchant_credentials(
+    store_id: str,
+    *,
+    username: str,
+    password: str,
+    store_url: str = "",
+) -> tuple[bool, str]:
+    """
+    First-time merchant username/password from WordPress (no Tenant API key).
+    Only allowed when login is not already configured.
+    """
+    tenant = get_tenant(store_id, include_inactive=True, include_secrets=True)
+    if not tenant:
+        return False, f'Store ID "{store_id}" was not found on the backend.'
+    if not tenant.get("active", True):
+        return False, f'Store "{store_id}" is disabled.'
+    if merchant_has_password_login(store_id):
+        return (
+            False,
+            "Merchant login already exists. Use your username/password, "
+            "or ask the platform admin to reset it.",
+        )
+
+    user = (username or "").strip()
+    pwd = (password or "").strip()
+    if len(user) < 3:
+        return False, "Username must be at least 3 characters."
+    if len(pwd) < 8:
+        return False, "Password must be at least 8 characters."
+
+    claimed = normalize_store_host(store_url)
+    # First-time only; once login exists this endpoint rejects further changes.
+    if claimed and not normalize_store_host(tenant.get("store_url") or ""):
+        payload = {
+            k: v
+            for k, v in tenant.items()
+            if k not in ("store_id", "active", "created_at", "updated_at")
+        }
+        payload["store_url"] = (store_url or "").strip().rstrip("/")
+        register_tenant(store_id, payload, active=bool(tenant.get("active", True)))
+
+    if not set_merchant_credentials(store_id, username=user, password=pwd):
+        return False, "Could not save merchant login."
+    return True, "Merchant login created. You can open the dashboard now."
+
+
 def verify_tenant_api_key(store_id: str, api_key: str) -> bool:
     if not store_id or not api_key:
         return False
