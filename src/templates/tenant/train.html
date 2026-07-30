@@ -40,8 +40,8 @@
       <button class="btn" type="submit">Sync Shopify catalog</button>
     </form>
     {% else %}
-    <form method="post" action="/app/{{ store_id }}/train/sync/woocommerce" style="display:inline;" data-busy="Syncing WooCommerce…" data-busy-sub="Fetching products and pages. This can take a minute.">
-      <button class="btn" type="submit">Sync WooCommerce products</button>
+    <form method="post" action="/app/{{ store_id }}/train/sync/woocommerce" style="display:inline;" data-busy="Syncing WordPress…" data-busy-sub="Fetching products, posts, pages, and custom post types.">
+      <button class="btn" type="submit">Sync WordPress (all content)</button>
     </form>
     {% endif %}
   </div>

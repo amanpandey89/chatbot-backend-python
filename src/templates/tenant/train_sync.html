@@ -22,13 +22,15 @@
       <button class="btn" type="submit">Full Shopify sync</button>
     </form>
     {% else %}
-    <form method="post" action="/app/{{ store_id }}/train/sync/woocommerce" data-busy="Syncing WooCommerce…" data-busy-sub="Fetching products, categories, and pages. This can take a minute.">
+    <form method="post" action="/app/{{ store_id }}/train/sync/woocommerce" data-busy="Syncing WordPress…" data-busy-sub="Fetching products, posts, pages, and custom post types. This can take a minute.">
       <button class="btn" type="submit" {% if not tenant.has_woo_credentials %}disabled title="Missing WooCommerce API keys on this store"{% endif %}>
-        Sync WooCommerce products
+        Sync WordPress (all content)
       </button>
     </form>
     {% if not tenant.has_woo_credentials %}
     <p class="muted" style="margin:0;">Add Consumer Key + Secret on this store in platform Admin → Stores, then sync again.</p>
+    {% else %}
+    <p class="muted" style="margin:0;">Pulls WooCommerce products + categories, posts, pages, tags, and custom post types exposed in the WP REST API.</p>
     {% endif %}
     {% endif %}
     <form method="post" action="/app/{{ store_id }}/train/sync/rebuild" data-busy="Rebuilding embeddings…" data-busy-sub="Re-indexing existing knowledge sources.">
