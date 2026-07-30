@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import struct
-from typing import List, Sequence
+from typing import List, Optional, Sequence
 
 EMBED_MODEL = "text-embedding-3-small"
 EMBED_DIM = 1536
@@ -35,12 +35,14 @@ def cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
     return dot / ((na**0.5) * (nb**0.5))
 
 
-async def embed_texts(texts: List[str]) -> List[List[float]]:
+async def embed_texts(
+    texts: List[str], *, api_key: Optional[str] = None, store_id: Optional[str] = None
+) -> List[List[float]]:
     if not texts:
         return []
     from src.services.openai_service import get_openai_client
 
-    client = get_openai_client()
+    client = get_openai_client(api_key=api_key, store_id=store_id)
     out: List[List[float]] = []
     batch = 64
     for i in range(0, len(texts), batch):
@@ -51,6 +53,8 @@ async def embed_texts(texts: List[str]) -> List[List[float]]:
     return out
 
 
-async def embed_query(text: str) -> List[float]:
-    vecs = await embed_texts([text])
+async def embed_query(
+    text: str, *, api_key: Optional[str] = None, store_id: Optional[str] = None
+) -> List[float]:
+    vecs = await embed_texts([text], api_key=api_key, store_id=store_id)
     return vecs[0] if vecs else []

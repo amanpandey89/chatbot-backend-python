@@ -541,10 +541,13 @@ def app_settings(request: Request, store_id: str):
     denied = _require(request, store_id)
     if denied:
         return denied
+    from src.services.tenant_auth import tenant_has_openai_key
+
     tenant = get_tenant(store_id, include_secrets=False)
     api_key = ensure_tenant_api_key(store_id)
     backend = str(request.base_url).rstrip("/")
-    return _render(
+    flash = request.cookies.get("asa_tenant_flash")
+    resp = _render(
         request,
         "tenant/settings.html",
         {
@@ -552,7 +555,29 @@ def app_settings(request: Request, store_id: str):
             "store_id": store_id,
             "api_key": api_key,
             "backend": backend,
+            "openai_key_set": tenant_has_openai_key(store_id),
+            "flash": flash,
+            "error": None,
             "active_nav": "settings",
             "fmt": _fmt,
         },
     )
+    if flash:
+        resp.delete_cookie("asa_tenant_flash")
+    return resp
+
+
+@router.post("/{store_id}/settings/openai-key")
+def app_settings_openai_key(
+    request: Request, store_id: str, openai_api_key: str = Form("")
+):
+    denied = _require(request, store_id)
+    if denied:
+        return denied
+    from src.services.tenant_auth import set_tenant_openai_api_key
+
+    key = (openai_api_key or "").strip()
+    if not key:
+        return _flash_redirect(store_id, "settings", "Enter an OpenAI API key.", request=request)
+    set_tenant_openai_api_key(store_id, key)
+    return _flash_redirect(store_id, "settings", "OpenAI API key saved.", request=request)

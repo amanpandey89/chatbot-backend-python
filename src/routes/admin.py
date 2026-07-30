@@ -308,6 +308,7 @@ def admin_store_new(
     consumer_key: str = Form(""),
     consumer_secret: str = Form(""),
     access_token: str = Form(""),
+    openai_api_key: str = Form(""),
 ):
     denied = _require_page_auth(request)
     if denied:
@@ -340,6 +341,8 @@ def admin_store_new(
         payload["consumer_secret"] = consumer_secret.strip()
     if access_token.strip():
         payload["access_token"] = access_token.strip()
+    if openai_api_key.strip():
+        payload["openai_api_key"] = openai_api_key.strip()
 
     if not payload["store_url"]:
         return _render(
@@ -366,7 +369,7 @@ def admin_store_detail(request: Request, store_id: str):
     if not store:
         return _flash_redirect("/admin/stores", "Store not found.")
 
-    from src.services.tenant_auth import ensure_tenant_api_key
+    from src.services.tenant_auth import ensure_tenant_api_key, tenant_has_openai_key
 
     try:
         tenant_api_key = ensure_tenant_api_key(store_id)
@@ -390,6 +393,7 @@ def admin_store_detail(request: Request, store_id: str):
             "updated_label": _format_ts(store.get("updated_at")),
             "embed_snippet": embed,
             "tenant_api_key": tenant_api_key,
+            "openai_key_set": tenant_has_openai_key(store_id),
             "flash": flash,
             "active_nav": "stores",
         },
@@ -397,6 +401,26 @@ def admin_store_detail(request: Request, store_id: str):
     if flash:
         _clear_flash(response)
     return response
+
+
+@router.post("/stores/{store_id}/openai-key")
+def admin_store_openai_key(
+    request: Request, store_id: str, openai_api_key: str = Form("")
+):
+    denied = _require_page_auth(request)
+    if denied:
+        return denied
+    if not get_tenant(store_id, include_inactive=True):
+        return _flash_redirect("/admin/stores", "Store not found.")
+    from src.services.tenant_auth import set_tenant_openai_api_key
+
+    key = (openai_api_key or "").strip()
+    if not key:
+        return _flash_redirect(
+            f"/admin/stores/{store_id}", "Enter an OpenAI API key to save."
+        )
+    set_tenant_openai_api_key(store_id, key)
+    return _flash_redirect(f"/admin/stores/{store_id}", "OpenAI API key saved for this store.")
 
 
 @router.post("/stores/{store_id}/toggle")

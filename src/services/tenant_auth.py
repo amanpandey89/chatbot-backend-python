@@ -78,6 +78,30 @@ def ensure_tenant_api_key(store_id: str) -> str:
     return key
 
 
+def set_tenant_openai_api_key(store_id: str, openai_api_key: str) -> bool:
+    """Save merchant OpenAI key on the tenant (empty string clears it)."""
+    tenant = get_tenant(store_id, include_inactive=True, include_secrets=True)
+    if not tenant:
+        return False
+    payload = {
+        k: v
+        for k, v in tenant.items()
+        if k not in ("store_id", "active", "created_at", "updated_at")
+    }
+    key = (openai_api_key or "").strip()
+    if key:
+        payload["openai_api_key"] = key
+    else:
+        payload.pop("openai_api_key", None)
+    register_tenant(store_id, payload, active=bool(tenant.get("active", True)))
+    return True
+
+
+def tenant_has_openai_key(store_id: str) -> bool:
+    tenant = get_tenant(store_id, include_inactive=True, include_secrets=True) or {}
+    return bool((tenant.get("openai_api_key") or "").strip())
+
+
 def verify_tenant_api_key(store_id: str, api_key: str) -> bool:
     if not store_id or not api_key:
         return False

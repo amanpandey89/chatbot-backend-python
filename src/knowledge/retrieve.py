@@ -15,10 +15,11 @@ async def search(
     *,
     top_k: Optional[int] = None,
     source_types: Optional[List[str]] = None,
+    api_key: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     settings = get_rag_settings(tenant_id)
     k = int(top_k or settings["top_k"] or 6)
-    qvec = await embed_query(query)
+    qvec = await embed_query(query, api_key=api_key, store_id=tenant_id)
     if not qvec:
         return []
 

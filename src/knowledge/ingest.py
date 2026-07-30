@@ -181,9 +181,11 @@ def index_source(
         import concurrent.futures
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            vectors = pool.submit(lambda: asyncio.run(embed_texts(chunks))).result()
+            vectors = pool.submit(
+                lambda: asyncio.run(embed_texts(chunks, store_id=tenant_id))
+            ).result()
     else:
-        vectors = asyncio.run(embed_texts(chunks))
+        vectors = asyncio.run(embed_texts(chunks, store_id=tenant_id))
 
     ts = now()
     doc_id = new_id()
@@ -286,7 +288,7 @@ async def index_source_async(
     if not chunks:
         return {"error": "no_chunks"}
 
-    vectors = await embed_texts(chunks)
+    vectors = await embed_texts(chunks, store_id=tenant_id)
     ts = now()
     doc_id = new_id()
     with _lock:

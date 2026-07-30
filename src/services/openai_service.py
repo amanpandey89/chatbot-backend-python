@@ -2,25 +2,50 @@
 import json
 import os
 import re
-from typing import Optional, cast
+from typing import Dict, Optional, cast
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
-from src.services.store import Session
+from src.services.store import Session, get_tenant
 from src.services.user_context import preference_score
 
-_client: Optional[AsyncOpenAI] = None
+_clients: Dict[str, AsyncOpenAI] = {}
 
 
-def get_openai_client() -> AsyncOpenAI:
-    global _client
-    if _client is None:
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise RuntimeError(
-                "OPENAI_API_KEY is missing. Add it to your .env file and restart the server."
-            )
-        _client = AsyncOpenAI(api_key=api_key)
-    return _client
+def resolve_openai_api_key(
+    tenant: Optional[dict] = None, store_id: Optional[str] = None
+) -> str:
+    """Prefer per-tenant OpenAI key; fall back to platform .env only if unset."""
+    sid = store_id or (tenant or {}).get("store_id")
+    raw = ""
+    if tenant:
+        raw = (tenant.get("openai_api_key") or "").strip()
+        # Ignore masked values from include_secrets=False
+        if raw.endswith("...") or raw == "***":
+            raw = ""
+    if not raw and sid:
+        full = get_tenant(sid, include_inactive=True, include_secrets=True) or {}
+        raw = (full.get("openai_api_key") or "").strip()
+    if not raw:
+        raw = (os.getenv("OPENAI_API_KEY") or "").strip()
+    if not raw:
+        raise RuntimeError(
+            "No OpenAI API key for this store. Add the merchant's OpenAI key "
+            "in Admin → store detail, merchant Settings, or WordPress AI Assistant settings."
+        )
+    return raw
+
+
+def get_openai_client(
+    api_key: Optional[str] = None,
+    tenant: Optional[dict] = None,
+    store_id: Optional[str] = None,
+) -> AsyncOpenAI:
+    key = api_key or resolve_openai_api_key(tenant=tenant, store_id=store_id)
+    client = _clients.get(key)
+    if client is None:
+        client = AsyncOpenAI(api_key=key)
+        _clients[key] = client
+    return client
 
 
 def build_product_summary(
@@ -252,7 +277,7 @@ async def get_recommendation(
             ]
             query = (user_msgs[-1] if user_msgs else "").strip()
             if query:
-                hits = await search(store_id, query)
+                hits = await search(store_id, query, api_key=resolve_openai_api_key(tenant, store_id))
                 rag_block = format_retrieval_block(hits)
                 if rag_block:
                     training_block = (
@@ -277,7 +302,8 @@ async def get_recommendation(
         [{"role": "system", "content": system_prompt}, *session["messages"]],
     )
 
-    response = await get_openai_client().chat.completions.create(
+    client = get_openai_client(tenant=tenant, store_id=store_id)
+    response = await client.chat.completions.create(
         model="gpt-4o-mini", max_tokens=1024, temperature=0.7, messages=messages
     )
 

@@ -39,6 +39,7 @@ def _auth_store(request: Request, store_id: str) -> str:
 class SettingsBody(BaseModel):
     tone: Optional[str] = None
     instructions: Optional[str] = None
+    openai_api_key: Optional[str] = None
 
 
 class KnowledgeBody(BaseModel):
@@ -60,7 +61,11 @@ def api_get_settings(request: Request, store_id: str):
     _auth_store(request, store_id)
     if not get_tenant(store_id):
         raise HTTPException(status_code=404, detail="Store not found")
-    return {"success": True, "settings": training_svc.get_tenant_settings(store_id)}
+    from src.services.tenant_auth import tenant_has_openai_key
+
+    settings = training_svc.get_tenant_settings(store_id)
+    settings["openai_api_key_set"] = tenant_has_openai_key(store_id)
+    return {"success": True, "settings": settings}
 
 
 @router.put("/{store_id}/settings")
@@ -71,6 +76,13 @@ def api_put_settings(request: Request, store_id: str, body: SettingsBody):
     settings = training_svc.update_tenant_settings(
         store_id, tone=body.tone, instructions=body.instructions
     )
+    if body.openai_api_key is not None and str(body.openai_api_key).strip():
+        from src.services.tenant_auth import set_tenant_openai_api_key
+
+        set_tenant_openai_api_key(store_id, str(body.openai_api_key).strip())
+    from src.services.tenant_auth import tenant_has_openai_key
+
+    settings["openai_api_key_set"] = tenant_has_openai_key(store_id)
     return {"success": True, "settings": settings}
 
 

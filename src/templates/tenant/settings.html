@@ -4,8 +4,24 @@
 <div class="page-head">
   <div>
     <h1>Settings</h1>
-    <p>API key for WordPress plugin / integrations.</p>
+    <p>API keys for integrations and OpenAI usage.</p>
   </div>
+</div>
+
+{% if flash %}<div class="flash">{{ flash }}</div>{% endif %}
+{% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+
+<div class="card">
+  <h2 style="margin:0 0 10px;font-size:16px;">OpenAI API key</h2>
+  <p class="muted">This store’s own key is used for chat replies and Train AI embeddings (not the platform key).</p>
+  <p style="margin:8px 0 12px;">
+    {% if openai_key_set %}<span class="pill">Key configured</span>{% else %}<span class="pill" style="background:rgba(255,107,122,.2);color:#ffb3bb;">Not set — chat will fail</span>{% endif %}
+  </p>
+  <form method="post" action="/app/{{ store_id }}/settings/openai-key{% if session_token %}?asa_session={{ session_token }}{% endif %}">
+    <label for="openai_api_key">OpenAI API key</label>
+    <input id="openai_api_key" name="openai_api_key" type="password" autocomplete="off" placeholder="sk-..." required />
+    <button class="btn" type="submit">Save OpenAI key</button>
+  </form>
 </div>
 
 <div class="card">
