@@ -125,6 +125,7 @@ def _row_to_tenant(row, include_secrets: bool = True) -> dict:
             "api_secret",
             "tenant_api_key",
             "openai_api_key",
+            "merchant_password_hash",
         ):
             if key in flat and flat[key]:
                 val = str(flat[key])

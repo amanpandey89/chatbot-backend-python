@@ -102,6 +102,68 @@ def tenant_has_openai_key(store_id: str) -> bool:
     return bool((tenant.get("openai_api_key") or "").strip())
 
 
+def _hash_password(password: str, salt: Optional[str] = None) -> str:
+    salt = salt or secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), salt.encode("utf-8"), 120_000
+    ).hex()
+    return f"{salt}${digest}"
+
+
+def _verify_password(password: str, stored: str) -> bool:
+    if not password or not stored or "$" not in stored:
+        return False
+    salt, digest = stored.split("$", 1)
+    check = hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), salt.encode("utf-8"), 120_000
+    ).hex()
+    return hmac.compare_digest(check, digest)
+
+
+def set_merchant_credentials(
+    store_id: str, *, username: str, password: str = ""
+) -> bool:
+    """Set merchant dashboard username/password. Empty password keeps existing hash."""
+    tenant = get_tenant(store_id, include_inactive=True, include_secrets=True)
+    if not tenant:
+        return False
+    username = (username or "").strip()
+    if not username:
+        return False
+    payload = {
+        k: v
+        for k, v in tenant.items()
+        if k not in ("store_id", "active", "created_at", "updated_at")
+    }
+    payload["merchant_username"] = username
+    pwd = (password or "").strip()
+    if pwd:
+        payload["merchant_password_hash"] = _hash_password(pwd)
+    register_tenant(store_id, payload, active=bool(tenant.get("active", True)))
+    return True
+
+
+def verify_merchant_password(store_id: str, username: str, password: str) -> bool:
+    tenant = get_tenant(store_id, include_inactive=False, include_secrets=True)
+    if not tenant:
+        return False
+    stored_user = (tenant.get("merchant_username") or "").strip()
+    stored_hash = tenant.get("merchant_password_hash") or ""
+    if not stored_user or not stored_hash:
+        return False
+    if not hmac.compare_digest(stored_user.lower(), (username or "").strip().lower()):
+        return False
+    return _verify_password(password or "", stored_hash)
+
+
+def merchant_has_password_login(store_id: str) -> bool:
+    tenant = get_tenant(store_id, include_inactive=True, include_secrets=True) or {}
+    return bool(
+        (tenant.get("merchant_username") or "").strip()
+        and (tenant.get("merchant_password_hash") or "").strip()
+    )
+
+
 def verify_tenant_api_key(store_id: str, api_key: str) -> bool:
     if not store_id or not api_key:
         return False

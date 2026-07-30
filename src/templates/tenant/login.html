@@ -32,18 +32,20 @@
 <body>
   <div class="card">
     <h1 style="margin:0 0 8px;font-size:22px;">Merchant login</h1>
-    <p class="muted">Paste the Tenant API key from backend Admin → Stores → your shop. Opening the app from Shopify should also auto-login.</p>
+    <p class="muted">Sign in with the username and password set by your admin (Train AI, chats, and OpenAI settings live here).</p>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
     <form method="post" action="/app/{{ store_id }}/login" id="loginForm" accept-charset="UTF-8">
       <label for="store_id_input">Store ID</label>
-      <input id="store_id_input" name="store_id_display" value="{{ store_id }}" {% if store_id %}readonly{% endif %} placeholder="your-store.myshopify.com" required />
-      <label for="tenant_api_key">Tenant API key</label>
-      <input id="tenant_api_key" name="tenant_api_key" type="password" required autocomplete="current-password" placeholder="Paste key from Admin store detail" />
+      <input id="store_id_input" name="store_id_display" value="{{ store_id }}" {% if store_id %}readonly{% endif %} placeholder="your-store-id" required />
+      <label for="username">Username</label>
+      <input id="username" name="username" type="text" required autocomplete="username" placeholder="merchant" value="{{ username or '' }}" />
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" required autocomplete="current-password" placeholder="••••••••" />
       <button class="btn" type="submit">Login</button>
     </form>
     <div class="hint">
-      In Shopify admin the app runs inside an iframe — after login you stay signed in via a secure session link.
-      Get the key from <strong>Admin → Stores → {{ store_id or 'your shop' }}</strong> (Tenant API key field).
+      Ask your platform admin for credentials (Admin → Stores → Merchant login).
+      Shopify merchants can also open the app from Shopify admin for automatic access.
     </div>
   </div>
   <script>
