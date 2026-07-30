@@ -30,6 +30,10 @@ from src.knowledge.exclusions import list_exclusions, add_exclusion, delete_excl
 from src.knowledge.retrieve import search
 from src.knowledge.sync import create_job, get_job, list_jobs, run_job, rebuild_embeddings
 from src.knowledge.connectors.shopify_sync import collect_shopify_knowledge
+from src.knowledge.connectors.woocommerce_sync import (
+    collect_woocommerce_knowledge,
+    woocommerce_sync_ready,
+)
 from src.knowledge.connectors.crawler import crawl_urls
 from src.services import training as training_svc
 
@@ -347,6 +351,13 @@ async def rag_create_job(
         background_tasks.add_task(_run_items, items)
         return {"success": True, "job": job, "queued": len(items)}
 
+    if job_type in ("woocommerce_full_sync", "woo_full_sync", "full_reindex"):
+        platform = (tenant.get("platform") or "woocommerce").lower()
+        if platform != "shopify" and woocommerce_sync_ready(tenant):
+            items = await collect_woocommerce_knowledge(tenant)
+            background_tasks.add_task(_run_items, items)
+            return {"success": True, "job": job, "queued": len(items)}
+
     if job_type in ("crawl", "website_crawl"):
         settings = get_rag_settings(store_id)
         seeds = body.seed_urls or [
@@ -369,7 +380,7 @@ async def rag_create_job(
 
     raise HTTPException(
         status_code=400,
-        detail="Provide items, or use shopify_full_sync / crawl / rebuild_embeddings",
+        detail="Provide items, or use shopify_full_sync / woocommerce_full_sync / crawl / rebuild_embeddings",
     )
 
 

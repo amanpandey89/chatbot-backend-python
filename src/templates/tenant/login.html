@@ -12,14 +12,17 @@
       background: radial-gradient(700px 400px at 20% 0%, rgba(79,209,138,.18), transparent 55%), #141210;
     }
     .card {
-      width: 100%; max-width: 420px; background: #221e1b; border: 1px solid rgba(255,255,255,.08);
-      border-radius: 18px; padding: 24px;
+      width: 100%; max-width: 420px; background: #2a2521; border: 1px solid rgba(255,255,255,.12);
+      border-radius: 18px; padding: 24px; box-shadow: 0 12px 32px rgba(0,0,0,.28);
     }
-    label { display: block; font-size: 12px; color: #a89f96; margin-bottom: 6px; }
+    label { display: block; font-size: 12px; color: #b0a79e; margin-bottom: 6px; font-weight: 600; }
     input {
-      width: 100%; box-sizing: border-box; padding: 11px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,.08);
-      background: rgba(0,0,0,.25); color: #f4f1ec; margin-bottom: 12px; font-size: 14px;
+      width: 100%; box-sizing: border-box; padding: 11px 12px; border-radius: 10px;
+      border: 1px solid rgba(255,255,255,.18); background: #3a332d; color: #f4f1ec;
+      margin-bottom: 12px; font-size: 14px; outline: none;
     }
+    input:focus { border-color: rgba(79,209,138,.55); box-shadow: 0 0 0 3px rgba(79,209,138,.16); background: #433c35; }
+    input::placeholder { color: #8f877e; }
     .btn {
       width: 100%; border: none; border-radius: 10px; padding: 11px; background: #4fd18a;
       color: #102418; font-weight: 700; cursor: pointer; font-size: 14px;

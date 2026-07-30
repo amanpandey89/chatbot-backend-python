@@ -26,6 +26,10 @@ from src.knowledge.exclusions import list_exclusions, add_exclusion, delete_excl
 from src.knowledge.retrieve import search as rag_search
 from src.knowledge.sync import create_job, list_jobs, run_job, rebuild_embeddings
 from src.knowledge.connectors.shopify_sync import collect_shopify_knowledge
+from src.knowledge.connectors.woocommerce_sync import (
+    collect_woocommerce_knowledge,
+    woocommerce_sync_ready,
+)
 from src.knowledge.connectors.crawler import crawl_urls
 
 router = APIRouter(prefix="/app", tags=["tenant-dashboard"])
@@ -423,13 +427,27 @@ def app_train_sync(request: Request, store_id: str):
     denied = _require(request, store_id)
     if denied:
         return denied
-    tenant = get_tenant(store_id, include_secrets=False)
+    tenant = get_tenant(store_id, include_secrets=True) or {}
+    # Don't leak secrets into the template
+    safe_tenant = {
+        k: v
+        for k, v in tenant.items()
+        if k
+        not in (
+            "consumer_secret",
+            "access_token",
+            "tenant_api_key",
+            "openai_api_key",
+            "merchant_password_hash",
+        )
+    }
+    safe_tenant["has_woo_credentials"] = woocommerce_sync_ready(tenant)
     flash = request.cookies.get("asa_tenant_flash")
     resp = _render(
         request,
         "tenant/train_sync.html",
         {
-            "tenant": tenant,
+            "tenant": safe_tenant,
             "store_id": store_id,
             "jobs": list_jobs(store_id),
             "rag_settings": get_rag_settings(store_id),
@@ -456,13 +474,52 @@ async def app_train_sync_shopify(request: Request, store_id: str):
     return _flash_redirect(store_id, "train/sync", f"Shopify sync finished ({len(items)} items).")
 
 
+@router.post("/{store_id}/train/sync/woocommerce")
+async def app_train_sync_woocommerce(request: Request, store_id: str):
+    denied = _require(request, store_id)
+    if denied:
+        return denied
+    tenant = get_tenant(store_id, include_inactive=False, include_secrets=True) or {}
+    tenant = {**tenant, "store_id": store_id}
+    if not woocommerce_sync_ready(tenant):
+        return _flash_redirect(
+            store_id,
+            "train/sync",
+            "WooCommerce sync needs store URL + consumer key/secret on this store (Admin → Stores).",
+        )
+    job = create_job(store_id, "woocommerce_full_sync")
+    try:
+        items = await collect_woocommerce_knowledge(tenant)
+    except Exception as e:
+        return _flash_redirect(
+            store_id,
+            "train/sync",
+            f"WooCommerce sync failed: {e}",
+        )
+    await run_job(store_id, job["id"], items)
+    return _flash_redirect(
+        store_id,
+        "train/sync",
+        f"WooCommerce sync finished ({len(items)} items). Check Knowledge for products.",
+    )
+
+
 @router.post("/{store_id}/train/sync/rebuild")
 async def app_train_sync_rebuild(request: Request, store_id: str):
     denied = _require(request, store_id)
     if denied:
         return denied
+    from src.knowledge.ingest import list_sources
+
+    sources = list_sources(store_id)
+    if not sources:
+        return _flash_redirect(
+            store_id,
+            "train/sync",
+            "Nothing to rebuild yet — run WooCommerce / Shopify sync (or crawl) first to index products.",
+        )
     await rebuild_embeddings(store_id)
-    return _flash_redirect(store_id, "train/sync", "Embeddings rebuilt.")
+    return _flash_redirect(store_id, "train/sync", f"Embeddings rebuilt ({len(sources)} sources).")
 
 
 @router.post("/{store_id}/train/sync/crawl")

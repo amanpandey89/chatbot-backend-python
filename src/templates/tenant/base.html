@@ -7,9 +7,20 @@
   <link rel="icon" href="/static/logo.png" type="image/png" />
   <style>
     :root {
-      --bg: #141210; --sidebar: #1b1816; --panel: #221e1b; --panel-2: #2a2521;
-      --text: #f4f1ec; --muted: #a89f96; --accent: #4fd18a; --accent-2: #7ee0ad;
-      --danger: #ff6b7a; --border: rgba(255,255,255,0.08);
+      --bg: #12100e;
+      --sidebar: #1a1715;
+      --panel: #2a2521;
+      --panel-2: #322c27;
+      --field: #3a332d;
+      --field-hover: #433c35;
+      --field-focus: #4a423a;
+      --text: #f4f1ec;
+      --muted: #b0a79e;
+      --accent: #4fd18a;
+      --accent-2: #7ee0ad;
+      --danger: #ff6b7a;
+      --border: rgba(255,255,255,0.12);
+      --border-strong: rgba(255,255,255,0.18);
     }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
@@ -26,15 +37,17 @@
     .side-nav { display: flex; flex-direction: column; gap: 4px; flex: 1; }
     .side-link { padding: 10px 12px; border-radius: 10px; color: var(--muted); font-size: 13px; font-weight: 600; }
     .side-link:hover { background: rgba(255,255,255,.05); color: var(--text); }
-    .side-link.active { background: rgba(79,209,138,.14); color: #c9f8dd; }
-    .main { flex: 1; padding: 24px; min-width: 0; }
-    .page-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
+    .side-link.active { background: rgba(79,209,138,.18); color: #c9f8dd; }
+    .main { flex: 1; padding: 24px; min-width: 0; background: radial-gradient(900px 420px at 10% -10%, rgba(79,209,138,.06), transparent 55%); }
+    .page-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; align-items: flex-start; }
     .page-head h1 { margin: 0 0 4px; font-size: 22px; }
     .page-head p { margin: 0; color: var(--muted); font-size: 13px; }
     .card {
       background: linear-gradient(180deg, var(--panel), var(--panel-2));
       border: 1px solid var(--border); border-radius: 16px; padding: 18px; margin-bottom: 14px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.18);
     }
+    .card h2 { color: var(--text); }
     .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
     @media (max-width: 900px) {
       .shell { flex-direction: column; }
@@ -49,18 +62,86 @@
     th { color: var(--muted); font-size: 11px; text-transform: uppercase; }
     .btn {
       display: inline-flex; align-items: center; justify-content: center; border: none; border-radius: 10px;
-      padding: 9px 14px; cursor: pointer; font-weight: 600; font-size: 13px; font-family: inherit;
-      background: var(--accent); color: #102418;
+      padding: 10px 14px; cursor: pointer; font-weight: 600; font-size: 13px; font-family: inherit;
+      background: var(--accent); color: #102418; white-space: nowrap; margin-bottom: 12px;
     }
-    .btn.secondary { background: rgba(255,255,255,.08); color: var(--text); }
-    .btn.danger { background: rgba(255,107,122,.2); color: #ffb3bb; }
-    .btn.small { padding: 6px 10px; font-size: 12px; }
-    label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+    .btn:hover { filter: brightness(1.05); }
+    .btn.secondary {
+      background: var(--field); color: var(--text); border: 1px solid var(--border-strong);
+    }
+    .btn.secondary:hover { background: var(--field-hover); }
+    .btn.danger { background: rgba(255,107,122,.22); color: #ffb3bb; border: 1px solid rgba(255,107,122,.28); }
+    .btn.small { padding: 6px 10px; font-size: 12px; margin-bottom: 0; }
+    label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
     input, select, textarea {
-      width: 100%; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--border);
-      background: rgba(0,0,0,.25); color: var(--text); font-size: 14px; margin-bottom: 12px; font-family: inherit;
+      width: 100%; padding: 11px 12px; border-radius: 10px;
+      border: 1px solid var(--border-strong);
+      background: var(--field);
+      color: var(--text);
+      font-size: 14px;
+      margin-bottom: 12px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color .15s ease, background .15s ease, box-shadow .15s ease;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    input::placeholder, textarea::placeholder { color: #8f877e; }
+    input:hover, select:hover, textarea:hover { background: var(--field-hover); border-color: rgba(255,255,255,.24); }
+    input:focus, select:focus, textarea:focus {
+      background: var(--field-focus);
+      border-color: rgba(79,209,138,.55);
+      box-shadow: 0 0 0 3px rgba(79,209,138,.16);
+    }
+    select {
+      background-image:
+        linear-gradient(45deg, transparent 50%, #cfc6bc 50%),
+        linear-gradient(135deg, #cfc6bc 50%, transparent 50%),
+        linear-gradient(to right, transparent, transparent);
+      background-position:
+        calc(100% - 18px) calc(50% - 3px),
+        calc(100% - 12px) calc(50% - 3px),
+        100% 0;
+      background-size: 6px 6px, 6px 6px, 2.8em 2.8em;
+      background-repeat: no-repeat;
+      background-color: var(--field);
+      padding-right: 40px;
+      cursor: pointer;
+    }
+    select:hover, select:focus { background-color: var(--field-hover); }
+    select option, select optgroup {
+      background: #2f2924;
+      color: var(--text);
+    }
+    input[type="file"] {
+      padding: 10px 12px;
+      background: var(--field);
+      border: 1px dashed var(--border-strong);
+      cursor: pointer;
+    }
+    input[type="file"]::file-selector-button {
+      margin-right: 12px;
+      border: 1px solid var(--border-strong);
+      border-radius: 8px;
+      padding: 7px 12px;
+      background: var(--field-hover);
+      color: var(--text);
+      font-weight: 600;
+      cursor: pointer;
+    }
+    input[type="checkbox"], input[type="radio"] {
+      width: auto; margin: 0 8px 0 0; padding: 0; accent-color: var(--accent);
+      background: transparent; border: none; box-shadow: none;
     }
     textarea { min-height: 100px; resize: vertical; }
+    form[style*="display:flex"] input,
+    form[style*="display:flex"] select,
+    form[style*="display:grid"] input,
+    form[style*="display:grid"] select,
+    form[style*="display:flex"] .btn,
+    form[style*="display:grid"] .btn {
+      margin-bottom: 0;
+    }
     .flash { margin-bottom: 12px; padding: 11px 12px; border-radius: 10px; background: rgba(79,209,138,.12); color: #c9f8dd; border: 1px solid rgba(79,209,138,.25); }
     .flash.error { background: rgba(255,107,122,.12); color: #ffc2c9; border-color: rgba(255,107,122,.25); }
     .muted { color: var(--muted); }
@@ -70,9 +151,47 @@
     .bubble.user { background: rgba(79,209,138,.18); margin-left: auto; }
     .bubble.assistant { background: rgba(255,255,255,.06); }
     .chat-thread { display: flex; flex-direction: column; gap: 4px; }
+    .btn.is-loading { opacity: .85; pointer-events: none; gap: 8px; }
+    .btn .btn-spinner {
+      width: 14px; height: 14px; border-radius: 50%;
+      border: 2px solid rgba(16,36,24,.25); border-top-color: #102418;
+      animation: asa-spin .7s linear infinite; flex-shrink: 0;
+    }
+    .btn.secondary .btn-spinner {
+      border-color: rgba(255,255,255,.2); border-top-color: #fff;
+    }
+    .asa-busy {
+      position: fixed; inset: 0; z-index: 9999;
+      display: none; align-items: center; justify-content: center;
+      background: rgba(10,8,7,.62); backdrop-filter: blur(3px);
+      padding: 24px;
+    }
+    .asa-busy.is-open { display: flex; }
+    .asa-busy-card {
+      width: min(100%, 360px); text-align: center;
+      background: linear-gradient(180deg, var(--panel), var(--panel-2));
+      border: 1px solid var(--border-strong); border-radius: 16px; padding: 28px 22px;
+      box-shadow: 0 18px 48px rgba(0,0,0,.45);
+    }
+    .asa-busy-spinner {
+      width: 42px; height: 42px; margin: 0 auto 16px; border-radius: 50%;
+      border: 3px solid rgba(79,209,138,.2); border-top-color: var(--accent);
+      animation: asa-spin .75s linear infinite;
+    }
+    .asa-busy-title { font-size: 16px; font-weight: 700; margin: 0 0 6px; }
+    .asa-busy-sub { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+    @keyframes asa-spin { to { transform: rotate(360deg); } }
+    body.asa-busy-lock { overflow: hidden; }
   </style>
 </head>
 <body>
+  <div id="asaBusy" class="asa-busy" aria-live="polite" aria-busy="true" hidden>
+    <div class="asa-busy-card">
+      <div class="asa-busy-spinner" aria-hidden="true"></div>
+      <p class="asa-busy-title" id="asaBusyTitle">Working…</p>
+      <p class="asa-busy-sub" id="asaBusySub">Please wait — this can take a few seconds.</p>
+    </div>
+  </div>
   <div class="shell">
     <aside class="sidebar">
       <div class="brand">
@@ -92,8 +211,8 @@
         <a class="side-link {% if active_nav == 'search' %}active{% endif %}" href="/app/{{ store_id }}/train/search{{ q }}">Search test</a>
         <a class="side-link {% if active_nav == 'settings' %}active{% endif %}" href="/app/{{ store_id }}/settings{{ q }}">Settings</a>
       </nav>
-      <form method="post" action="/app/{{ store_id }}/logout">
-        <button class="btn secondary" type="submit" style="width:100%;">Logout</button>
+      <form method="post" action="/app/{{ store_id }}/logout" style="margin-top:auto;">
+        <button class="btn secondary" type="submit" style="width:100%;margin-bottom:0;">Logout</button>
       </form>
     </aside>
     <main class="main">
@@ -126,5 +245,46 @@
     })();
   </script>
   {% endif %}
+  <script>
+    (function () {
+      var overlay = document.getElementById('asaBusy');
+      var titleEl = document.getElementById('asaBusyTitle');
+      var subEl = document.getElementById('asaBusySub');
+      if (!overlay) return;
+
+      function showBusy(title, sub) {
+        if (titleEl) titleEl.textContent = title || 'Working…';
+        if (subEl) subEl.textContent = sub || 'Please wait — this can take a few seconds.';
+        overlay.hidden = false;
+        overlay.classList.add('is-open');
+        document.body.classList.add('asa-busy-lock');
+      }
+
+      window.asaShowBusy = showBusy;
+
+      document.querySelectorAll('form[data-busy]').forEach(function (form) {
+        form.addEventListener('submit', function () {
+          if (form.dataset.busyArmed === '1') return;
+          form.dataset.busyArmed = '1';
+          var btn = form.querySelector('button[type="submit"], button:not([type])');
+          var label = (form.getAttribute('data-busy') || 'Working…').trim();
+          var sub = (form.getAttribute('data-busy-sub') || 'Please wait — this can take a few seconds.').trim();
+          showBusy(label, sub);
+          // Defer button disable so the browser still posts the form.
+          setTimeout(function () {
+            if (!btn) return;
+            btn.disabled = true;
+            btn.classList.add('is-loading');
+            btn.innerHTML = '';
+            var spin = document.createElement('span');
+            spin.className = 'btn-spinner';
+            spin.setAttribute('aria-hidden', 'true');
+            btn.appendChild(spin);
+            btn.appendChild(document.createTextNode(' ' + label));
+          }, 0);
+        });
+      });
+    })();
+  </script>
 </body>
 </html>
