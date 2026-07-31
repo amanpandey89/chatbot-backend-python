@@ -8,22 +8,30 @@
   </div>
   <a class="btn secondary" href="/app/{{ store_id }}/train">← Train AI</a>
 </div>
-{% if flash %}<div class="flash">{{ flash }}</div>{% endif %}
+{% if flash %}<div class="flash {% if flash_type == 'error' %}error{% endif %}">{{ flash }}</div>{% endif %}
+
+{% if not tenant.has_openai_key %}
+<div class="flash error">
+  OpenAI API key is missing for this store. Indexing needs embeddings.
+  Add a key under <a class="link-accent" href="/app/{{ store_id }}/settings" style="color:#ffc2c9;text-decoration:underline;">Settings</a>
+  (or Admin → store detail), then sync again.
+</div>
+{% endif %}
 
 <div class="card">
   <h2 style="margin:0 0 12px;font-size:16px;">Catalog sync</h2>
   <p class="muted" style="margin-top:0;">
+    Sync pulls content from your store. Each item is then embedded with your OpenAI key.
     <strong>Rebuild embeddings</strong> only re-indexes content already in Knowledge.
-    Run a catalog sync first so products are imported.
   </p>
   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
     {% if tenant.platform == 'shopify' %}
     <form method="post" action="/app/{{ store_id }}/train/sync/shopify" data-busy="Syncing Shopify…" data-busy-sub="Fetching products, collections, pages, and policies. This can take a minute.">
-      <button class="btn" type="submit">Full Shopify sync</button>
+      <button class="btn" type="submit" {% if not tenant.has_openai_key %}disabled{% endif %}>Full Shopify sync</button>
     </form>
     {% else %}
     <form method="post" action="/app/{{ store_id }}/train/sync/woocommerce" data-busy="Syncing WordPress…" data-busy-sub="Fetching products, posts, pages, and custom post types. This can take a minute.">
-      <button class="btn" type="submit" {% if not tenant.has_woo_credentials %}disabled title="Missing WooCommerce API keys on this store"{% endif %}>
+      <button class="btn" type="submit" {% if not tenant.has_woo_credentials or not tenant.has_openai_key %}disabled{% endif %}>
         Sync WordPress (all content)
       </button>
     </form>
@@ -34,7 +42,7 @@
     {% endif %}
     {% endif %}
     <form method="post" action="/app/{{ store_id }}/train/sync/rebuild" data-busy="Rebuilding embeddings…" data-busy-sub="Re-indexing existing knowledge sources.">
-      <button class="btn secondary" type="submit">Rebuild embeddings</button>
+      <button class="btn secondary" type="submit" {% if not tenant.has_openai_key %}disabled{% endif %}>Rebuild embeddings</button>
     </form>
   </div>
 </div>
@@ -44,7 +52,7 @@
   <form method="post" action="/app/{{ store_id }}/train/sync/crawl" data-busy="Crawling website…" data-busy-sub="Downloading and indexing seed URLs.">
     <label for="seed_urls">Seed URLs (one per line)</label>
     <textarea id="seed_urls" name="seed_urls" placeholder="https://your-store.com/pages/shipping">{{ rag_settings.crawler_seed_urls }}</textarea>
-    <button class="btn" type="submit">Crawl &amp; index</button>
+    <button class="btn" type="submit" {% if not tenant.has_openai_key %}disabled{% endif %}>Crawl &amp; index</button>
   </form>
 </div>
 
@@ -52,14 +60,28 @@
   <h2 style="margin:0 0 12px;font-size:16px;">Recent jobs</h2>
   {% if jobs %}
   <table>
-    <thead><tr><th>Type</th><th>Status</th><th>Progress</th><th>Totals</th><th>Created</th></tr></thead>
+    <thead><tr><th>Type</th><th>Status</th><th>Progress</th><th>Totals</th><th>Error</th><th>Created</th></tr></thead>
     <tbody>
       {% for j in jobs %}
       <tr>
-        <td>{{ j.job_type }}</td>
-        <td><span class="pill">{{ j.status }}</span></td>
+        <td class="mono">{{ j.job_type }}</td>
+        <td>
+          {% set st = j.status or '' %}
+          <span class="pill {% if st == 'completed' %}ok{% elif st == 'failed' or st == 'completed_with_errors' %}err{% elif st == 'running' or st == 'queued' %}warn{% endif %}">{{ st }}</span>
+        </td>
         <td>{{ j.progress_pct }}%</td>
-        <td class="mono muted">{{ j.totals }}</td>
+        <td>
+          {% set t = j.totals or {} %}
+          <div class="job-totals">
+            <span class="tot-chip">{{ t.get('total', 0) }} total</span>
+            <span class="tot-chip ok">{{ t.get('indexed', 0) }} indexed</span>
+            <span class="tot-chip muted-chip">{{ t.get('skipped', 0) }} skipped</span>
+            <span class="tot-chip {% if t.get('failed', 0) %}err{% endif %}">{{ t.get('failed', 0) }} failed</span>
+          </div>
+        </td>
+        <td class="muted" style="max-width:240px;font-size:12px;line-height:1.35;">
+          {% if j.error %}{{ j.error[:160] }}{% if j.error|length > 160 %}…{% endif %}{% else %}—{% endif %}
+        </td>
         <td class="muted">{{ fmt(j.created_at) }}</td>
       </tr>
       {% endfor %}

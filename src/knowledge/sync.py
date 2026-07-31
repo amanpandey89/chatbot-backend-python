@@ -110,9 +110,10 @@ async def run_job(tenant_id: str, job_id: str, items: List[Dict[str, Any]]) -> D
     if not job:
         return {"error": "job_not_found"}
 
-    _update_job(job_id, status="running", started_at=now(), progress_pct=0)
+    _update_job(job_id, status="running", started_at=now(), progress_pct=0, error="")
     total = len(items)
     indexed = skipped = failed = 0
+    first_error = ""
 
     for i, item in enumerate(items):
         try:
@@ -137,14 +138,27 @@ async def run_job(tenant_id: str, job_id: str, items: List[Dict[str, Any]]) -> D
                 )
                 if result.get("error"):
                     failed += 1
+                    err = str(result.get("error"))
+                    if not first_error:
+                        first_error = err
+                    log_event(
+                        tenant_id,
+                        "index_error",
+                        err,
+                        level="error",
+                        meta={"item": item.get("external_id"), "job_id": job_id},
+                    )
                 else:
                     indexed += 1
         except Exception as e:
             failed += 1
+            err = str(e)
+            if not first_error:
+                first_error = err
             log_event(
                 tenant_id,
                 "index_error",
-                str(e),
+                err,
                 level="error",
                 meta={"item": item.get("external_id"), "job_id": job_id},
             )
@@ -154,20 +168,28 @@ async def run_job(tenant_id: str, job_id: str, items: List[Dict[str, Any]]) -> D
             job_id,
             progress_pct=pct,
             totals={"total": total, "indexed": indexed, "skipped": skipped, "failed": failed},
+            error=(first_error[:500] if first_error else ""),
         )
+
+    status = "completed"
+    if failed and indexed:
+        status = "completed_with_errors"
+    elif failed and not indexed:
+        status = "failed"
 
     _update_job(
         job_id,
-        status="completed" if failed == 0 else "completed_with_errors",
+        status=status,
         progress_pct=100,
         finished_at=now(),
         totals={"total": total, "indexed": indexed, "skipped": skipped, "failed": failed},
+        error=(first_error[:500] if first_error else ""),
     )
     log_event(
         tenant_id,
         "job_completed",
         f"Job finished: indexed={indexed} skipped={skipped} failed={failed}",
-        meta={"job_id": job_id},
+        meta={"job_id": job_id, "first_error": first_error[:200] if first_error else ""},
     )
     return get_job(tenant_id, job_id) or {}
 
