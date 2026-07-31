@@ -61,6 +61,9 @@ async def create_new_session(body: SessionRequest):
     session_id = str(uuid.uuid4())
     create_session(session_id, body.store_id, user_context)
 
+    store_name = tenant.get("store_name") or body.store_id
+    auth_state = (user_context or {}).get("auth_state") or "guest"
+
     greeting = (
         f"Hi! I am your shopping assistant for {store_name}. "
         "What are you looking for today?"

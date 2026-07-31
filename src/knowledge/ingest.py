@@ -288,7 +288,14 @@ async def index_source_async(
     if not chunks:
         return {"error": "no_chunks"}
 
-    vectors = await embed_texts(chunks, store_id=tenant_id)
+    try:
+        vectors = await embed_texts(chunks, store_id=tenant_id)
+    except Exception as e:
+        return {"error": f"embedding_failed: {e}"}
+
+    if len(vectors) != len(chunks):
+        return {"error": "embedding_count_mismatch"}
+
     ts = now()
     doc_id = new_id()
     with _lock:

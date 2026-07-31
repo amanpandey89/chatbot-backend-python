@@ -147,6 +147,18 @@
     .muted { color: var(--muted); }
     .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
     .pill { display: inline-flex; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: rgba(79,209,138,.15); color: #9aecc0; }
+    .pill.ok { background: rgba(79,209,138,.15); color: #9aecc0; }
+    .pill.warn { background: rgba(255,196,90,.16); color: #ffd28a; }
+    .pill.err { background: rgba(255,107,122,.18); color: #ffb3bb; }
+    .job-totals { display: flex; flex-wrap: wrap; gap: 6px; }
+    .tot-chip {
+      display: inline-flex; padding: 3px 8px; border-radius: 8px; font-size: 11px; font-weight: 600;
+      background: rgba(255,255,255,.06); color: var(--muted); border: 1px solid var(--border);
+    }
+    .tot-chip.ok { background: rgba(79,209,138,.12); color: #9aecc0; border-color: rgba(79,209,138,.25); }
+    .tot-chip.err { background: rgba(255,107,122,.14); color: #ffb3bb; border-color: rgba(255,107,122,.28); }
+    .tot-chip.muted-chip { color: var(--muted); }
+    .link-accent { color: var(--accent-2); }
     .bubble { max-width: 85%; padding: 10px 12px; border-radius: 12px; margin: 8px 0; white-space: pre-wrap; font-size: 13px; line-height: 1.45; }
     .bubble.user { background: rgba(79,209,138,.18); margin-left: auto; }
     .bubble.assistant { background: rgba(255,255,255,.06); }

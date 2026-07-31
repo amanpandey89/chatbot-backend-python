@@ -78,7 +78,14 @@ def _authed_redirect(store_id: str, path: str = "", request: Optional[Request] =
     return resp
 
 
-def _flash_redirect(store_id: str, path: str, message: str, request: Optional[Request] = None):
+def _flash_redirect(
+    store_id: str,
+    path: str,
+    message: str,
+    request: Optional[Request] = None,
+    *,
+    error: bool = False,
+):
     resp = _authed_redirect(store_id, path, request=request)
     # Cookie values must be Latin-1; strip fancy punctuation that caused 500s.
     safe = (
@@ -90,7 +97,53 @@ def _flash_redirect(store_id: str, path: str, message: str, request: Optional[Re
         .decode("latin-1")
     )[:450]
     resp.set_cookie("asa_tenant_flash", safe, max_age=12, path="/")
+    resp.set_cookie(
+        "asa_tenant_flash_type",
+        "error" if error else "ok",
+        max_age=12,
+        path="/",
+    )
     return resp
+
+
+def _openai_ready(store_id: str) -> tuple[bool, str]:
+    try:
+        from src.services.openai_service import resolve_openai_api_key
+
+        resolve_openai_api_key(store_id=store_id)
+        return True, ""
+    except Exception as e:
+        return False, str(e)
+
+
+def _job_flash(job: dict, label: str) -> tuple[str, bool]:
+    totals = job.get("totals") or {}
+    indexed = int(totals.get("indexed") or 0)
+    failed = int(totals.get("failed") or 0)
+    skipped = int(totals.get("skipped") or 0)
+    total = int(totals.get("total") or 0)
+    err = (job.get("error") or "").strip()
+    if failed and not indexed:
+        msg = (
+            f"{label} failed: 0 indexed / {failed} failed"
+            + (f" of {total}." if total else ".")
+        )
+        if err:
+            msg += f" Reason: {err[:220]}"
+        else:
+            msg += " Set an OpenAI API key in Settings, then sync again."
+        return msg, True
+    if failed:
+        msg = f"{label} finished with errors: {indexed} indexed, {failed} failed, {skipped} skipped."
+        if err:
+            msg += f" First error: {err[:160]}"
+        return msg, True
+    return (
+        f"{label} finished: {indexed} indexed"
+        + (f", {skipped} skipped" if skipped else "")
+        + f" (of {total}).",
+        False,
+    )
 
 
 @router.get("/login", response_class=HTMLResponse)
@@ -451,7 +504,11 @@ def app_train_sync(request: Request, store_id: str):
         )
     }
     safe_tenant["has_woo_credentials"] = woocommerce_sync_ready(tenant)
+    openai_ok, openai_err = _openai_ready(store_id)
+    safe_tenant["has_openai_key"] = openai_ok
+    safe_tenant["openai_error"] = openai_err
     flash = request.cookies.get("asa_tenant_flash")
+    flash_type = request.cookies.get("asa_tenant_flash_type") or "ok"
     resp = _render(
         request,
         "tenant/train_sync.html",
@@ -461,12 +518,14 @@ def app_train_sync(request: Request, store_id: str):
             "jobs": list_jobs(store_id),
             "rag_settings": get_rag_settings(store_id),
             "flash": flash,
+            "flash_type": flash_type,
             "active_nav": "sync",
             "fmt": _fmt,
         },
     )
     if flash:
         resp.delete_cookie("asa_tenant_flash")
+        resp.delete_cookie("asa_tenant_flash_type")
     return resp
 
 
@@ -475,12 +534,21 @@ async def app_train_sync_shopify(request: Request, store_id: str):
     denied = _require(request, store_id)
     if denied:
         return denied
+    ok, err = _openai_ready(store_id)
+    if not ok:
+        return _flash_redirect(
+            store_id,
+            "train/sync",
+            f"Cannot sync: {err}",
+            error=True,
+        )
     tenant = get_tenant(store_id, include_inactive=False, include_secrets=True) or {}
     tenant = {**tenant, "store_id": store_id}
     job = create_job(store_id, "shopify_full_sync")
     items = await collect_shopify_knowledge(tenant)
-    await run_job(store_id, job["id"], items)
-    return _flash_redirect(store_id, "train/sync", f"Shopify sync finished ({len(items)} items).")
+    result = await run_job(store_id, job["id"], items)
+    msg, is_err = _job_flash(result, "Shopify sync")
+    return _flash_redirect(store_id, "train/sync", msg, error=is_err)
 
 
 @router.post("/{store_id}/train/sync/woocommerce")
@@ -495,6 +563,15 @@ async def app_train_sync_woocommerce(request: Request, store_id: str):
             store_id,
             "train/sync",
             "WordPress sync needs store URL + consumer key/secret on this store (Admin -> Stores).",
+            error=True,
+        )
+    ok, err = _openai_ready(store_id)
+    if not ok:
+        return _flash_redirect(
+            store_id,
+            "train/sync",
+            f"Cannot index content: {err}",
+            error=True,
         )
     job = create_job(store_id, "wordpress_full_sync")
     try:
@@ -504,13 +581,18 @@ async def app_train_sync_woocommerce(request: Request, store_id: str):
             store_id,
             "train/sync",
             f"WordPress sync failed: {e}",
+            error=True,
         )
-    await run_job(store_id, job["id"], items)
-    return _flash_redirect(
-        store_id,
-        "train/sync",
-        f"WordPress sync finished ({len(items)} items). Check Knowledge for products, posts, pages, and more.",
-    )
+    if not items:
+        return _flash_redirect(
+            store_id,
+            "train/sync",
+            "WordPress sync found 0 items. Check store URL and WooCommerce API keys.",
+            error=True,
+        )
+    result = await run_job(store_id, job["id"], items)
+    msg, is_err = _job_flash(result, "WordPress sync")
+    return _flash_redirect(store_id, "train/sync", msg, error=is_err)
 
 
 @router.api_route("/{store_id}/train/sync/rebuild", methods=["GET", "POST"])
@@ -532,18 +614,27 @@ async def app_train_sync_rebuild(request: Request, store_id: str):
             store_id,
             "train/sync",
             "Nothing to rebuild yet - run WordPress / Shopify sync (or crawl) first.",
+            error=True,
+        )
+    ok, err = _openai_ready(store_id)
+    if not ok:
+        return _flash_redirect(
+            store_id,
+            "train/sync",
+            f"Cannot rebuild: {err}",
+            error=True,
         )
     try:
-        await rebuild_embeddings(store_id)
+        result = await rebuild_embeddings(store_id)
     except Exception as e:
         return _flash_redirect(
             store_id,
             "train/sync",
             f"Rebuild failed: {e}",
+            error=True,
         )
-    return _flash_redirect(
-        store_id, "train/sync", f"Embeddings rebuilt ({len(sources)} sources)."
-    )
+    msg, is_err = _job_flash(result, "Rebuild")
+    return _flash_redirect(store_id, "train/sync", msg, error=is_err)
 
 
 @router.post("/{store_id}/train/sync/crawl")
@@ -553,12 +644,21 @@ async def app_train_sync_crawl(
     denied = _require(request, store_id)
     if denied:
         return denied
+    ok, err = _openai_ready(store_id)
+    if not ok:
+        return _flash_redirect(
+            store_id,
+            "train/sync",
+            f"Cannot crawl/index: {err}",
+            error=True,
+        )
     update_rag_settings(store_id, crawler_seed_urls=seed_urls)
     seeds = [u.strip() for u in seed_urls.splitlines() if u.strip()]
     job = create_job(store_id, "website_crawl")
     items = await crawl_urls(seeds)
-    await run_job(store_id, job["id"], items)
-    return _flash_redirect(store_id, "train/sync", f"Crawl finished ({len(items)} pages).")
+    result = await run_job(store_id, job["id"], items)
+    msg, is_err = _job_flash(result, "Crawl")
+    return _flash_redirect(store_id, "train/sync", msg, error=is_err)
 
 
 @router.get("/{store_id}/train/search", response_class=HTMLResponse)
