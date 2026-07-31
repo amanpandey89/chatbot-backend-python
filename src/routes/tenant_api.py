@@ -186,15 +186,17 @@ def api_merchant_status(store_id: str):
     """Public: whether WordPress still needs first-time merchant account setup."""
     from src.services.tenant_auth import merchant_has_password_login
 
-    tenant = get_tenant(store_id, include_inactive=True)
+    tenant = get_tenant(store_id, include_inactive=True, include_secrets=True)
     if not tenant:
         raise HTTPException(status_code=404, detail="Store not found")
+    configured = merchant_has_password_login(store_id)
     return {
         "success": True,
         "store_id": store_id,
         "store_name": tenant.get("store_name") or store_id,
         "active": bool(tenant.get("active", True)),
-        "login_configured": merchant_has_password_login(store_id),
+        "login_configured": configured,
+        "username": (tenant.get("merchant_username") or "").strip() if configured else "",
     }
 
 
@@ -202,9 +204,23 @@ def api_merchant_status(store_id: str):
 def api_merchant_setup(store_id: str, body: MerchantSetupBody):
     """
     First-time merchant username/password from WordPress (no Tenant API key).
-    Rejected once login already exists — platform admin can reset afterwards.
+    If login already exists, returns success so WP stops re-prompting.
     """
-    from src.services.tenant_auth import bootstrap_merchant_credentials
+    from src.services.tenant_auth import (
+        bootstrap_merchant_credentials,
+        merchant_has_password_login,
+    )
+
+    if merchant_has_password_login(store_id):
+        tenant = get_tenant(store_id, include_inactive=True, include_secrets=True) or {}
+        return {
+            "success": True,
+            "already_configured": True,
+            "message": "Merchant login already exists. Open the Merchant Dashboard and sign in.",
+            "store_id": store_id,
+            "username": (tenant.get("merchant_username") or "").strip(),
+            "login_url": f"/app/{store_id}/login",
+        }
 
     ok, message = bootstrap_merchant_credentials(
         store_id,
@@ -213,12 +229,13 @@ def api_merchant_setup(store_id: str, body: MerchantSetupBody):
         store_url=body.store_url or "",
     )
     if not ok:
-        code = 409 if "already exists" in message.lower() else 400
+        code = 400
         if "not found" in message.lower():
             code = 404
         raise HTTPException(status_code=code, detail=message)
     return {
         "success": True,
+        "already_configured": False,
         "message": message,
         "store_id": store_id,
         "username": (body.username or "").strip(),
