@@ -6,6 +6,7 @@ from src.services.store import get_tenant, get_session, add_message, set_user_co
 from src.services.catalog import fetch_products, lookup_order_status
 from src.services.openai_service import get_recommendation
 from src.services.user_context import merge_user_context
+from src.services.woocommerce import WooConfigError
 
 router = APIRouter()
 
@@ -15,6 +16,18 @@ class ChatRequest(BaseModel):
     session_id: str
     message: str
     user_context: Optional[Dict[str, Any]] = None
+
+
+def _config_http_detail(exc: Exception) -> Optional[str]:
+    if isinstance(exc, WooConfigError):
+        return str(exc)
+    raw = str(exc).strip().strip("'\"")
+    if raw in ("consumer_key", "consumer_secret", "store_url"):
+        return (
+            "Store configuration incomplete: WooCommerce API keys or store URL are missing. "
+            "Open Merchant Dashboard → Settings → Store connection and save them."
+        )
+    return None
 
 
 @router.post("/chat")
@@ -38,33 +51,24 @@ async def chat(body: ChatRequest):
     add_message(body.session_id, "user", body.message)
 
     try:
-        # Fetch all products from WooCommerce
         products = await fetch_products(tenant)
 
         fresh_session = get_session(body.session_id)
         if not fresh_session:
             raise HTTPException(status_code=404, detail="Session not found or expired.")
 
-        # Look up live order status when the user shared an order number
         order_lookup = await lookup_order_status(tenant, fresh_session["messages"])
 
-        # ── Send products (+ optional order status) to OpenAI ─────────────
         ai_response = await get_recommendation(
             fresh_session, products, tenant, order_lookup
         )
 
         add_message(body.session_id, "assistant", ai_response)
 
-        # ── Extract JSON from response ────────────────────────────────────
-        # Handle cases where AI embeds JSON inside text
         cleaned = ai_response.strip()
-
-        # Remove markdown code blocks if present
         cleaned = cleaned.removeprefix("```json").removeprefix("```")
         cleaned = cleaned.removesuffix("```").strip()
 
-        # If response contains JSON embedded in text — extract it
-        # Find the first { and last } and take everything between
         if "{" in cleaned and "}" in cleaned:
             start = cleaned.index("{")
             end = cleaned.rindex("}") + 1
@@ -96,8 +100,20 @@ async def chat(body: ChatRequest):
             "response": {"type": "question", "message": ai_response},
         }
 
+    except HTTPException:
+        raise
+    except WooConfigError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except KeyError as e:
+        detail = _config_http_detail(e)
+        if detail:
+            raise HTTPException(status_code=400, detail=detail)
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
     except Exception as e:
         import traceback
 
         traceback.print_exc()
+        detail = _config_http_detail(e)
+        if detail:
+            raise HTTPException(status_code=400, detail=detail)
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")

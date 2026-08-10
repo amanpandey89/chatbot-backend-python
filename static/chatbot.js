@@ -774,22 +774,26 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+
+      let data = null;
+      try {
+        data = await res.json();
+      } catch (_) {
+        data = null;
+      }
       hideTyping();
 
-      if (data.success) {
+      if (res.ok && data && data.success) {
         const response = data.response;
 
         if (response.type === 'recommendations') {
-          // Render product cards
           addProductCards(response.message, response.products);
         } else {
-          // Render plain text question
-          const text = response.message || response.content;
-          addMessage(text, 'bot');
+          const botText = response.message || response.content;
+          addMessage(botText, 'bot');
         }
       } else {
-        addMessage('Something went wrong. Please try again.', 'bot');
+        addMessage(formatChatError(res, data), 'bot');
       }
 
     } catch (err) {
@@ -798,6 +802,50 @@
     }
 
     setLoading(false);
+  }
+
+  function formatApiDetail(data) {
+    if (!data) return '';
+    const detail = data.detail != null ? data.detail : data.message;
+    if (!detail) return '';
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail)) {
+      return detail
+        .map(function (item) {
+          if (typeof item === 'string') return item;
+          if (item && item.msg) return item.msg;
+          return JSON.stringify(item);
+        })
+        .join(' ');
+    }
+    return String(detail);
+  }
+
+  function formatChatError(res, data) {
+    const detail = formatApiDetail(data);
+    const low = (detail || '').toLowerCase();
+    if (
+      low.indexOf('configuration incomplete') !== -1 ||
+      low.indexOf('consumer key') !== -1 ||
+      low.indexOf('consumer_secret') !== -1 ||
+      low.indexOf('consumer_key') !== -1 ||
+      low.indexOf('store url') !== -1 ||
+      low.indexOf('store connection') !== -1
+    ) {
+      return (
+        detail ||
+        'Store configuration is incomplete. Add your store URL and WooCommerce API keys in Merchant Dashboard → Settings → Store connection.'
+      );
+    }
+    if (res && res.status === 404) {
+      return detail || 'Store or session not found. Refresh the page and try again.';
+    }
+    if (res && res.status >= 500) {
+      return detail
+        ? ('Chat server error: ' + detail)
+        : 'Chat server is temporarily unavailable. Please try again in a moment.';
+    }
+    return detail || 'Something went wrong. Please try again.';
   }
 
   // ── 7. Event listeners ─────────────────────────────────────────────────

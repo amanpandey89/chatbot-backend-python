@@ -737,20 +737,38 @@ def app_settings(request: Request, store_id: str):
         return denied
     from src.services.tenant_auth import tenant_has_openai_key
 
-    tenant = get_tenant(store_id, include_secrets=False)
+    tenant = get_tenant(store_id, include_secrets=True) or {}
     api_key = ensure_tenant_api_key(store_id)
     backend = str(request.base_url).rstrip("/")
     flash = request.cookies.get("asa_tenant_flash")
+    flash_type = request.cookies.get("asa_tenant_flash_type") or "ok"
+    consumer_key_set = bool((tenant.get("consumer_key") or "").strip())
+    consumer_secret_set = bool((tenant.get("consumer_secret") or "").strip())
+    store_url_set = bool((tenant.get("store_url") or "").strip())
+    woo_ready = store_url_set and consumer_key_set and consumer_secret_set
+    # Do not send raw secrets to the browser
+    safe_tenant = {
+        **tenant,
+        "consumer_key": "",
+        "consumer_secret": "",
+        "tenant_api_key": "",
+        "openai_api_key": "",
+        "access_token": "",
+    }
     resp = _render(
         request,
         "tenant/settings.html",
         {
-            "tenant": tenant,
+            "tenant": safe_tenant,
             "store_id": store_id,
             "api_key": api_key,
             "backend": backend,
             "openai_key_set": tenant_has_openai_key(store_id),
+            "consumer_key_set": consumer_key_set,
+            "consumer_secret_set": consumer_secret_set,
+            "woo_ready": woo_ready,
             "flash": flash,
+            "flash_type": flash_type,
             "error": None,
             "active_nav": "settings",
             "fmt": _fmt,
@@ -758,7 +776,78 @@ def app_settings(request: Request, store_id: str):
     )
     if flash:
         resp.delete_cookie("asa_tenant_flash")
+        resp.delete_cookie("asa_tenant_flash_type")
     return resp
+
+
+@router.post("/{store_id}/settings/store-connection")
+def app_settings_store_connection(
+    request: Request,
+    store_id: str,
+    store_url: str = Form(""),
+    store_name: str = Form(""),
+    consumer_key: str = Form(""),
+    consumer_secret: str = Form(""),
+):
+    denied = _require(request, store_id)
+    if denied:
+        return denied
+    from src.services.store import register_tenant
+
+    tenant = get_tenant(store_id, include_inactive=True, include_secrets=True)
+    if not tenant:
+        return _flash_redirect(
+            store_id, "settings", "Store not found.", request=request, error=True
+        )
+
+    url = (store_url or "").strip().rstrip("/")
+    if not url.startswith("http"):
+        return _flash_redirect(
+            store_id,
+            "settings",
+            "Store URL must be an absolute http(s) URL.",
+            request=request,
+            error=True,
+        )
+
+    key = (consumer_key or "").strip()
+    secret = (consumer_secret or "").strip()
+    name = (store_name or "").strip() or tenant.get("store_name") or store_id
+
+    if not key and not (tenant.get("consumer_key") or "").strip():
+        return _flash_redirect(
+            store_id,
+            "settings",
+            "Enter a WooCommerce consumer key.",
+            request=request,
+            error=True,
+        )
+    if not secret and not (tenant.get("consumer_secret") or "").strip():
+        return _flash_redirect(
+            store_id,
+            "settings",
+            "Enter a WooCommerce consumer secret.",
+            request=request,
+            error=True,
+        )
+
+    payload = {
+        k: v
+        for k, v in tenant.items()
+        if k not in ("store_id", "active", "created_at", "updated_at")
+    }
+    payload["platform"] = tenant.get("platform") or "woocommerce"
+    payload["store_url"] = url
+    payload["store_name"] = name
+    if key:
+        payload["consumer_key"] = key
+    if secret:
+        payload["consumer_secret"] = secret
+
+    register_tenant(store_id, payload, active=bool(tenant.get("active", True)))
+    return _flash_redirect(
+        store_id, "settings", "Store connection saved.", request=request
+    )
 
 
 @router.post("/{store_id}/settings/openai-key")
