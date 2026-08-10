@@ -1,4 +1,10 @@
 {
+    "autotest-example": {
+        "platform": "woocommerce",
+        "store_name": "Auto Test Store",
+        "store_url": "https://autotest-example.example.com",
+        "tenant_api_key": "uzg_c2Q03YrQgbIVt6TfHzz2STio067z"
+    },
     "my-store-swagdealscollection": {
         "platform": "woocommerce",
         "store_name": "WordPress Demo",
