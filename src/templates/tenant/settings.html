@@ -4,12 +4,37 @@
 <div class="page-head">
   <div>
     <h1>Settings</h1>
-    <p>API keys for integrations and OpenAI usage.</p>
+    <p>Store connection, API keys, and OpenAI usage.</p>
   </div>
 </div>
 
-{% if flash %}<div class="flash">{{ flash }}</div>{% endif %}
+{% if flash %}<div class="flash {% if flash_type == 'error' %}error{% endif %}">{{ flash }}</div>{% endif %}
 {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+
+<div class="card">
+  <h2 style="margin:0 0 10px;font-size:16px;">Store connection</h2>
+  <p class="muted">Required for product recommendations and order lookup. Create keys in WooCommerce → Settings → Advanced → REST API.</p>
+  <p style="margin:8px 0 12px;">
+    {% if woo_ready %}<span class="pill">Connected</span>{% else %}<span class="pill" style="background:rgba(255,107,122,.2);color:#ffb3bb;">Incomplete — chat recommendations will fail</span>{% endif %}
+  </p>
+  <form method="post" action="/app/{{ store_id }}/settings/store-connection{% if session_token %}?asa_session={{ session_token }}{% endif %}">
+    <label for="store_name">Store name</label>
+    <input id="store_name" name="store_name" type="text" value="{{ tenant.store_name or '' }}" placeholder="My Store" />
+
+    <label for="store_url">Store URL</label>
+    <input id="store_url" name="store_url" type="url" value="{{ tenant.store_url or '' }}" placeholder="https://your-shop.com" required />
+
+    <label for="consumer_key">WooCommerce consumer key</label>
+    <input id="consumer_key" name="consumer_key" type="text" autocomplete="off" placeholder="{% if consumer_key_set %}Leave blank to keep current key{% else %}ck_...{% endif %}" {% if not consumer_key_set %}required{% endif %} />
+    {% if consumer_key_set %}<p class="muted" style="margin-top:-6px;">Current key is saved. Enter a new value only to replace it.</p>{% endif %}
+
+    <label for="consumer_secret">WooCommerce consumer secret</label>
+    <input id="consumer_secret" name="consumer_secret" type="password" autocomplete="off" placeholder="{% if consumer_secret_set %}Leave blank to keep current secret{% else %}cs_...{% endif %}" {% if not consumer_secret_set %}required{% endif %} />
+    {% if consumer_secret_set %}<p class="muted" style="margin-top:-6px;">Current secret is saved. Enter a new value only to replace it.</p>{% endif %}
+
+    <button class="btn" type="submit">Save store connection</button>
+  </form>
+</div>
 
 <div class="card">
   <h2 style="margin:0 0 10px;font-size:16px;">OpenAI API key</h2>

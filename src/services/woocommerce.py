@@ -9,6 +9,33 @@ _PRODUCT_CACHE: Dict[str, Tuple[float, list]] = {}
 PRODUCT_CACHE_TTL = int(os.getenv("PRODUCT_CACHE_TTL", "600"))  # 10 minutes
 
 
+class WooConfigError(Exception):
+    """Missing WooCommerce store URL or API keys — safe to show to shoppers."""
+
+    pass
+
+
+def require_woo_credentials(tenant: dict) -> tuple:
+    """Return (store_url, consumer_key, consumer_secret) or raise WooConfigError."""
+    store_url = (tenant.get("store_url") or "").strip().rstrip("/")
+    consumer_key = (tenant.get("consumer_key") or "").strip()
+    consumer_secret = (tenant.get("consumer_secret") or "").strip()
+    missing = []
+    if not store_url:
+        missing.append("store URL")
+    if not consumer_key:
+        missing.append("WooCommerce consumer key")
+    if not consumer_secret:
+        missing.append("WooCommerce consumer secret")
+    if missing:
+        raise WooConfigError(
+            "Store configuration incomplete: missing "
+            + ", ".join(missing)
+            + ". Open Merchant Dashboard → Settings → Store connection and save them."
+        )
+    return store_url, consumer_key, consumer_secret
+
+
 def strip_html(html: str) -> str:
     """Remove HTML tags from a string"""
     if not html:
@@ -41,9 +68,7 @@ def normalize_product(p: dict) -> dict:
 
 
 async def _fetch_products_uncached(tenant: dict) -> list:
-    store_url = tenant["store_url"]
-    consumer_key = tenant["consumer_key"]
-    consumer_secret = tenant["consumer_secret"]
+    store_url, consumer_key, consumer_secret = require_woo_credentials(tenant)
 
     headers = {
         "User-Agent": "Mozilla/5.0 (compatible; ChatbotBot/1.0)",
@@ -173,9 +198,7 @@ def extract_order_details(messages: list) -> dict:
 
 async def fetch_order(tenant: dict, order_number: str) -> Optional[dict]:
     """Fetch a WooCommerce order by ID / order number."""
-    store_url = tenant["store_url"]
-    consumer_key = tenant["consumer_key"]
-    consumer_secret = tenant["consumer_secret"]
+    store_url, consumer_key, consumer_secret = require_woo_credentials(tenant)
 
     headers = {
         "User-Agent": "Mozilla/5.0 (compatible; ChatbotBot/1.0)",
