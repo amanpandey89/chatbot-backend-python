@@ -692,24 +692,55 @@
       const userContext = getUserContext();
       if (userContext) payload.user_context = userContext;
 
+      if (!BACKEND || !STORE_ID) {
+        addMessage('Chatbot is not configured (missing Backend URL or Store ID).', 'bot');
+        return;
+      }
+
       const res = await fetch(`${BACKEND}/api/session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
 
-      if (data.success) {
+      let data = null;
+      try {
+        data = await res.json();
+      } catch (_) {
+        data = null;
+      }
+
+      if (res.ok && data && data.success) {
         sessionId = data.session_id;
         if (data.currency_symbol) currencySymbol = data.currency_symbol;
         addMessage(data.greeting, 'bot');
         showQuickReplies();
         sendBtn.disabled = false; // enable send now that session exists
+        return;
+      }
+
+      const detail = (data && (data.detail || data.message)) || '';
+      if (res.status === 404) {
+        addMessage('Store not found on the chat server. Check Store ID in plugin settings.', 'bot');
+      } else if (res.status >= 500) {
+        addMessage(
+          detail
+            ? ('Chat server error: ' + detail)
+            : 'Chat server is temporarily unavailable. Please try again in a moment.',
+          'bot'
+        );
       } else {
-        addMessage('Sorry, could not connect. Please try again later.', 'bot');
+        addMessage(
+          detail || 'Sorry, could not start chat. Please try again later.',
+          'bot'
+        );
       }
     } catch (err) {
-      addMessage('Connection error. Please check your internet.', 'bot');
+      console.error('ASA session error:', err);
+      addMessage(
+        'Cannot reach the chat server. Check Backend URL and that the server is online.',
+        'bot'
+      );
     }
   }
 
