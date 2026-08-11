@@ -7,6 +7,11 @@ from src.services.catalog import fetch_products, lookup_order_status
 from src.services.openai_service import get_recommendation
 from src.services.user_context import merge_user_context
 from src.services.woocommerce import WooConfigError, WooAuthError
+from src.services.catalog_filter import (
+    filter_products_for_query,
+    enforce_recommendation_ids,
+    parse_query_constraints,
+)
 
 
 router = APIRouter()
@@ -87,6 +92,32 @@ async def chat(body: ChatRequest):
                 "response": {"type": "question", "message": msg},
             }
 
+        constraints = {}
+        catalog_for_ai = products
+        if products and wants_products:
+            catalog_for_ai, constraints = filter_products_for_query(
+                products, body.message, limit=40
+            )
+            if not catalog_for_ai:
+                constraints = parse_query_constraints(body.message)
+                models = constraints.get("models") or []
+                budget = constraints.get("budget")
+                bits = []
+                if models:
+                    bits.append(" / ".join(models))
+                if budget:
+                    bits.append(f"under {int(budget)}")
+                label = " ".join(bits) if bits else "that request"
+                msg = (
+                    f"I could not find in-stock products matching {label} in the live catalog. "
+                    "Try another model, a wider budget, or ask me to show similar phones."
+                )
+                add_message(body.session_id, "assistant", msg)
+                return {
+                    "success": True,
+                    "response": {"type": "question", "message": msg},
+                }
+
         fresh_session = get_session(body.session_id)
         if not fresh_session:
             raise HTTPException(status_code=404, detail="Session not found or expired.")
@@ -98,7 +129,7 @@ async def chat(body: ChatRequest):
             order_lookup = None
 
         ai_response = await get_recommendation(
-            fresh_session, products, tenant, order_lookup
+            fresh_session, catalog_for_ai, tenant, order_lookup
         )
 
         add_message(body.session_id, "assistant", ai_response)
@@ -115,11 +146,20 @@ async def chat(body: ChatRequest):
         try:
             parsed = json.loads(cleaned)
             if parsed.get("type") == "recommendations":
-                enriched = []
-                for item in parsed.get("products") or []:
-                    product = next((p for p in products if p["id"] == item["id"]), None)
-                    if product:
-                        enriched.append({**product, "reason": item.get("reason")})
+                enriched = enforce_recommendation_ids(
+                    catalog_for_ai,
+                    parsed.get("products") or [],
+                    constraints,
+                )
+                # If hard filter removed everything, fall back to filtered catalog top matches
+                if not enriched and catalog_for_ai:
+                    enriched = [
+                        {
+                            **p,
+                            "reason": "Matches your request from the store catalog.",
+                        }
+                        for p in catalog_for_ai[:3]
+                    ]
 
                 if enriched:
                     return {
@@ -131,11 +171,9 @@ async def chat(body: ChatRequest):
                             "products": enriched,
                         },
                     }
-                # Model returned IDs we cannot resolve — never show empty cards
                 fallback = (
                     catalog_error
-                    or "I could not match products from the live catalog. Please try again, "
-                    "or check WooCommerce API keys under Settings → Store connection."
+                    or "I could not match products from the live catalog. Please try again."
                 )
                 return {
                     "success": True,
