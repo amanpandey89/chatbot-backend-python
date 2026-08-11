@@ -8,6 +8,7 @@ import httpx
 
 from src.services.woocommerce import strip_html
 
+
 # Built-in types we always try (in addition to discovered CPTs)
 _CORE_WP_TYPES = ("posts", "pages")
 
@@ -28,13 +29,6 @@ _SKIP_TYPES = {
 
 def _base_url(tenant: dict) -> str:
     return (tenant.get("store_url") or "").rstrip("/")
-
-
-def _auth_params(tenant: dict) -> Dict[str, str]:
-    return {
-        "consumer_key": tenant.get("consumer_key") or "",
-        "consumer_secret": tenant.get("consumer_secret") or "",
-    }
 
 
 def _headers() -> Dict[str, str]:
@@ -65,6 +59,7 @@ async def _paginate(
     params: Optional[Dict[str, Any]] = None,
     *,
     max_pages: int = 80,
+    auth: Optional[httpx.Auth] = None,
 ) -> List[dict]:
     items: List[dict] = []
     page = 1
@@ -74,6 +69,7 @@ async def _paginate(
             url,
             params={**base_params, "page": page, "per_page": 100},
             headers=_headers(),
+            auth=auth,
             timeout=60.0,
         )
         if resp.status_code >= 400:
@@ -209,16 +205,19 @@ async def collect_woocommerce_knowledge(tenant: dict) -> List[Dict[str, Any]]:
     if not base or not key or not secret:
         return []
 
-    auth = _auth_params(tenant)
+    auth_qs = {
+        "consumer_key": key,
+        "consumer_secret": secret,
+    }
     out: List[Dict[str, Any]] = []
     seen_ids: Set[str] = set()
 
     async with httpx.AsyncClient(follow_redirects=True) as client:
-        # --- WooCommerce products ---
+        # --- WooCommerce products (query-string auth for WP Engine) ---
         products = await _paginate(
             client,
             f"{base}/wp-json/wc/v3/products",
-            {**auth, "status": "publish"},
+            {**auth_qs, "status": "publish"},
         )
         for p in products:
             ext = f"product-{p.get('id')}"
@@ -245,7 +244,7 @@ async def collect_woocommerce_knowledge(tenant: dict) -> List[Dict[str, Any]]:
         categories = await _paginate(
             client,
             f"{base}/wp-json/wc/v3/products/categories",
-            auth,
+            auth_qs,
         )
         for c in categories:
             ext = f"product-cat-{c.get('id')}"

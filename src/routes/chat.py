@@ -6,7 +6,8 @@ from src.services.store import get_tenant, get_session, add_message, set_user_co
 from src.services.catalog import fetch_products, lookup_order_status
 from src.services.openai_service import get_recommendation
 from src.services.user_context import merge_user_context
-from src.services.woocommerce import WooConfigError
+from src.services.woocommerce import WooConfigError, WooAuthError
+
 
 router = APIRouter()
 
@@ -21,7 +22,16 @@ class ChatRequest(BaseModel):
 def _config_http_detail(exc: Exception) -> Optional[str]:
     if isinstance(exc, WooConfigError):
         return str(exc)
-    raw = str(exc).strip().strip("'\"")
+    msg = str(exc)
+    low = msg.lower()
+    if "401" in low or "cannot_view" in low or "cannot list" in low:
+        return (
+            "WooCommerce API keys were rejected (cannot list products). "
+            "In WooCommerce → Settings → Advanced → REST API, create a Read key "
+            "(or Read/Write), paste the new key and secret into Merchant Dashboard → "
+            "Settings → Store connection, and use the exact https store URL."
+        )
+    raw = msg.strip().strip("'\"")
     if raw in ("consumer_key", "consumer_secret", "store_url"):
         return (
             "Store configuration incomplete: WooCommerce API keys or store URL are missing. "
@@ -51,13 +61,24 @@ async def chat(body: ChatRequest):
     add_message(body.session_id, "user", body.message)
 
     try:
-        products = await fetch_products(tenant)
+        # Live Woo catalog is preferred for product cards. If WC auth fails
+        # (common on WP Engine), continue with RAG knowledge so chat still answers.
+        products: list = []
+        order_lookup = None
+        try:
+            products = await fetch_products(tenant)
+        except WooConfigError as e:
+            print(f"── Chat catalog fallback (WooCommerce unavailable): {e}")
 
         fresh_session = get_session(body.session_id)
         if not fresh_session:
             raise HTTPException(status_code=404, detail="Session not found or expired.")
 
-        order_lookup = await lookup_order_status(tenant, fresh_session["messages"])
+        try:
+            order_lookup = await lookup_order_status(tenant, fresh_session["messages"])
+        except WooConfigError as e:
+            print(f"── Chat order lookup skipped: {e}")
+            order_lookup = None
 
         ai_response = await get_recommendation(
             fresh_session, products, tenant, order_lookup
@@ -83,13 +104,20 @@ async def chat(body: ChatRequest):
                     if product:
                         enriched.append({**product, "reason": item["reason"]})
 
+                if enriched:
+                    return {
+                        "success": True,
+                        "response": {
+                            "type": "recommendations",
+                            "message": parsed["message"],
+                            "products": enriched,
+                        },
+                    }
+                # No live catalog match — show the text message instead of failing
+                text = parsed.get("message") or ai_response
                 return {
                     "success": True,
-                    "response": {
-                        "type": "recommendations",
-                        "message": parsed["message"],
-                        "products": enriched,
-                    },
+                    "response": {"type": "question", "message": text},
                 }
 
         except json.JSONDecodeError:
@@ -102,8 +130,6 @@ async def chat(body: ChatRequest):
 
     except HTTPException:
         raise
-    except WooConfigError as e:
-        raise HTTPException(status_code=400, detail=str(e))
     except KeyError as e:
         detail = _config_http_detail(e)
         if detail:

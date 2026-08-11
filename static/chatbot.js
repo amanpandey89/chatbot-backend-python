@@ -830,7 +830,11 @@
       low.indexOf('consumer_secret') !== -1 ||
       low.indexOf('consumer_key') !== -1 ||
       low.indexOf('store url') !== -1 ||
-      low.indexOf('store connection') !== -1
+      low.indexOf('store connection') !== -1 ||
+      low.indexOf('api keys were rejected') !== -1 ||
+      low.indexOf('cannot list') !== -1 ||
+      low.indexOf('woocommerce_rest_cannot_view') !== -1 ||
+      low.indexOf('401') !== -1
     ) {
       return (
         detail ||
