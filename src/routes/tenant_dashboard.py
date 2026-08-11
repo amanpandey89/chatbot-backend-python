@@ -958,6 +958,58 @@ def app_settings_store_connection(
     )
 
 
+@router.post("/{store_id}/settings/test-woocommerce")
+async def app_settings_test_woocommerce(request: Request, store_id: str):
+    """Verify live WooCommerce REST access (same path chat uses for product cards)."""
+    denied = _require(request, store_id)
+    if denied:
+        return denied
+    tenant = get_tenant(store_id, include_inactive=False, include_secrets=True) or {}
+    tenant = {**tenant, "store_id": store_id}
+    try:
+        from src.services.woocommerce import woo_get, require_woo_credentials
+
+        store_url, key, secret = require_woo_credentials(tenant)
+        resp = await woo_get(
+            f"{store_url}/wp-json/wc/v3/products",
+            consumer_key=key,
+            consumer_secret=secret,
+            params={"per_page": 3, "status": "publish"},
+            timeout=20.0,
+        )
+        if resp.status_code in (401, 403):
+            return _flash_redirect(
+                store_id,
+                "settings",
+                "WooCommerce test failed: API keys rejected (401/403). Recreate Read/Write keys on this exact site and re-save them.",
+                request=request,
+                error=True,
+            )
+        if resp.status_code >= 400:
+            return _flash_redirect(
+                store_id,
+                "settings",
+                f"WooCommerce test failed: HTTP {resp.status_code} {resp.text[:160]}",
+                request=request,
+                error=True,
+            )
+        data = resp.json()
+        count = len(data) if isinstance(data, list) else 0
+        names = ", ".join((p.get("name") or "") for p in (data or [])[:3] if isinstance(p, dict))
+        msg = f"WooCommerce OK — loaded {count} sample product(s)"
+        if names:
+            msg += f": {names}"
+        return _flash_redirect(store_id, "settings", msg, request=request)
+    except Exception as e:
+        return _flash_redirect(
+            store_id,
+            "settings",
+            f"WooCommerce test failed: {e}",
+            request=request,
+            error=True,
+        )
+
+
 @router.post("/{store_id}/settings/openai-key")
 def app_settings_openai_key(
     request: Request, store_id: str, openai_api_key: str = Form("")

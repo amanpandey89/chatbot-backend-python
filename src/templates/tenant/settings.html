@@ -13,9 +13,9 @@
 
 <div class="card">
   <h2 style="margin:0 0 10px;font-size:16px;">Store connection</h2>
-  <p class="muted">Required for product recommendations and order lookup. Create keys in WooCommerce → Settings → Advanced → REST API.</p>
+  <p class="muted">Required for product recommendations and order lookup. Chat loads products via the <strong>WooCommerce REST API</strong> (not the WordPress database, and not Train AI sync).</p>
   <p style="margin:8px 0 12px;">
-    {% if woo_ready %}<span class="pill">Connected</span>{% else %}<span class="pill" style="background:rgba(255,107,122,.2);color:#ffb3bb;">Incomplete — chat recommendations will fail</span>{% endif %}
+    {% if woo_ready %}<span class="pill">Keys saved</span>{% else %}<span class="pill" style="background:rgba(255,107,122,.2);color:#ffb3bb;">Incomplete — chat recommendations will fail</span>{% endif %}
   </p>
   <form method="post" action="/app/{{ store_id }}/settings/store-connection{% if session_token %}?asa_session={{ session_token }}{% endif %}">
     <label for="store_name">Store name</label>
@@ -34,6 +34,12 @@
 
     <button class="btn" type="submit">Save store connection</button>
   </form>
+  {% if woo_ready %}
+  <form method="post" action="/app/{{ store_id }}/settings/test-woocommerce{% if session_token %}?asa_session={{ session_token }}{% endif %}" style="margin-top:12px;" data-busy="Testing WooCommerce…" data-busy-sub="Calling /wp-json/wc/v3/products with your saved keys.">
+    <button class="btn secondary" type="submit">Test WooCommerce connection</button>
+  </form>
+  <p class="muted" style="margin-top:8px;">This uses the same product API chat uses. If the test fails, recommendations cannot show product cards.</p>
+  {% endif %}
 </div>
 
 <div class="card">
