@@ -970,6 +970,7 @@ async def app_settings_test_woocommerce(request: Request, store_id: str):
         from src.services.woocommerce import woo_get, require_woo_credentials
 
         store_url, key, secret = require_woo_credentials(tenant)
+        key_hint = (key[:10] + "…") if len(key) > 10 else key
         resp = await woo_get(
             f"{store_url}/wp-json/wc/v3/products",
             consumer_key=key,
@@ -981,7 +982,12 @@ async def app_settings_test_woocommerce(request: Request, store_id: str):
             return _flash_redirect(
                 store_id,
                 "settings",
-                "WooCommerce test failed: API keys rejected (401/403). Recreate Read/Write keys on this exact site and re-save them.",
+                (
+                    f"WooCommerce test failed: API keys rejected (HTTP {resp.status_code}). "
+                    f"Saved key starts with {key_hint}. "
+                    "Generate a NEW key, paste BOTH key and secret into the fields "
+                    "(do not leave blank), click Save store connection, then Test again."
+                ),
                 request=request,
                 error=True,
             )
@@ -995,8 +1001,10 @@ async def app_settings_test_woocommerce(request: Request, store_id: str):
             )
         data = resp.json()
         count = len(data) if isinstance(data, list) else 0
-        names = ", ".join((p.get("name") or "") for p in (data or [])[:3] if isinstance(p, dict))
-        msg = f"WooCommerce OK — loaded {count} sample product(s)"
+        names = ", ".join(
+            (p.get("name") or "") for p in (data or [])[:3] if isinstance(p, dict)
+        )
+        msg = f"WooCommerce OK — loaded {count} sample product(s) (key {key_hint})"
         if names:
             msg += f": {names}"
         return _flash_redirect(store_id, "settings", msg, request=request)

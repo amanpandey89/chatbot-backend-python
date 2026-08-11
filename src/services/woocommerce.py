@@ -9,6 +9,15 @@ _PRODUCT_CACHE: Dict[str, Tuple[float, list]] = {}
 PRODUCT_CACHE_TTL = int(os.getenv("PRODUCT_CACHE_TTL", "600"))  # 10 minutes
 
 
+# WP Engine bot-filter treats User-Agents containing "bot"/"crawler" specially
+# (redirects and drops query-string API credentials). Use a normal browser UA.
+_BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/122.0.0.0 Safari/537.36"
+)
+
+
 class WooConfigError(Exception):
     """Missing WooCommerce store URL or API keys — safe to show to shoppers."""
 
@@ -50,9 +59,9 @@ def raise_for_woo_response(response: httpx.Response, *, context: str = "WooComme
     if response.status_code in (401, 403):
         raise WooAuthError(
             "WooCommerce API keys were rejected (cannot list products). "
-            "On WP Engine, create a Read/Write REST API key for an Administrator, "
-            "save key+secret under Merchant Dashboard → Settings → Store connection, "
-            "and use https://your-site.wpenginepowered.com with no path."
+            "Generate Read/Write keys on this exact site, paste BOTH key and secret "
+            "into Settings → Store connection, click Save, then Test again. "
+            "On WP Engine, ask support to allow REST API if it still fails."
         )
     try:
         response.raise_for_status()
@@ -74,37 +83,52 @@ async def woo_get(
     """
     GET WooCommerce REST with WP Engine-compatible auth.
 
-    WP Engine often strips the Authorization header, so query-string keys are
-    tried first; Basic Auth is the fallback for hosts that block query auth.
+    Important: do not use a User-Agent containing "bot" — WP Engine's bot filter
+    redirects those requests and drops consumer_key/secret query params (always 401).
     """
     params = dict(params or {})
     headers = {
-        "User-Agent": "Mozilla/5.0 (compatible; ChatbotBot/1.0)",
+        "User-Agent": _BROWSER_UA,
         "Accept": "application/json",
         **(headers or {}),
     }
-    async with httpx.AsyncClient(follow_redirects=True) as client:
+    # Prefer HTTPS and avoid following a bot/cache redirect that strips credentials.
+    async with httpx.AsyncClient(follow_redirects=False) as client:
+        qs_params = {
+            **params,
+            "consumer_key": consumer_key,
+            "consumer_secret": consumer_secret,
+        }
         response = await client.get(
             url,
-            params={
-                **params,
-                "consumer_key": consumer_key,
-                "consumer_secret": consumer_secret,
-            },
+            params=qs_params,
             headers=headers,
             timeout=timeout,
         )
+        # One safe HTTPS redirect hop only (keep query string).
+        if response.status_code in (301, 302, 303, 307, 308):
+            loc = response.headers.get("location") or ""
+            if loc.startswith("https://"):
+                response = await client.get(
+                    loc,
+                    headers=headers,
+                    timeout=timeout,
+                )
+            else:
+                print(f"── WooCommerce blocked unsafe redirect: {loc[:120]}")
+
         if response.status_code not in (401, 403):
             return response
 
         print("── WooCommerce query-string auth failed; retrying Basic Auth")
-        return await client.get(
+        response = await client.get(
             url,
             params=params,
             headers=headers,
             auth=woo_basic_auth(consumer_key, consumer_secret),
             timeout=timeout,
         )
+        return response
 
 
 def strip_html(html: str) -> str:
