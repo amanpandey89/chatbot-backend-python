@@ -65,6 +65,109 @@ _BUDGET_RE = re.compile(
     re.I,
 )
 
+_STOPWORDS = {
+    "show",
+    "me",
+    "a",
+    "an",
+    "the",
+    "all",
+    "please",
+    "find",
+    "list",
+    "open",
+    "browse",
+    "for",
+    "with",
+    "and",
+    "or",
+    "of",
+    "to",
+    "my",
+    "some",
+    "any",
+    "looking",
+    "want",
+    "need",
+    "i",
+    "im",
+    "get",
+    "buy",
+    "shop",
+    "store",
+    "product",
+    "products",
+    "item",
+    "items",
+    "can",
+    "you",
+    "your",
+    "have",
+    "has",
+    "are",
+    "is",
+    "in",
+    "on",
+    "at",
+    "from",
+    "that",
+    "this",
+    "those",
+    "these",
+    "recommend",
+    "suggest",
+    "best",
+    "top",
+    "under",
+    "below",
+    "max",
+    "budget",
+    "color",
+    "colour",
+    "size",
+}
+
+# Canonical keyword expansions for apparel / common retail
+_KEYWORD_EXPAND = {
+    "jean": ("jean", "jeans", "denim"),
+    "jeans": ("jean", "jeans", "denim"),
+    "denim": ("jean", "jeans", "denim"),
+    "men": ("men", "mens", "men's", "male", "man", "gentleman"),
+    "mens": ("men", "mens", "men's", "male", "man"),
+    "man": ("men", "mens", "men's", "male", "man"),
+    "male": ("men", "mens", "men's", "male", "man"),
+    "women": ("women", "womens", "women's", "female", "lady", "ladies", "woman"),
+    "womens": ("women", "womens", "women's", "female", "lady", "ladies", "woman"),
+    "woman": ("women", "womens", "women's", "female", "lady", "ladies", "woman"),
+    "female": ("women", "womens", "women's", "female", "lady", "ladies", "woman"),
+    "dress": ("dress", "dresses", "gown"),
+    "dresses": ("dress", "dresses", "gown"),
+    "shirt": ("shirt", "shirts", "tee", "t-shirt", "tshirt"),
+    "shirts": ("shirt", "shirts", "tee", "t-shirt", "tshirt"),
+    "jacket": ("jacket", "jackets", "coat"),
+    "jackets": ("jacket", "jackets", "coat"),
+    "pant": ("pant", "pants", "trousers"),
+    "pants": ("pant", "pants", "trousers"),
+    "shoe": ("shoe", "shoes", "sneaker", "sneakers"),
+    "shoes": ("shoe", "shoes", "sneaker", "sneakers"),
+}
+
+_FEMALE_MARKERS = (
+    "women",
+    "womens",
+    "woman",
+    "female",
+    "lady",
+    "ladies",
+    "dress",
+    "dresses",
+    "gown",
+    "kimono",
+    "skirt",
+    "blouse",
+)
+_MALE_MARKERS = ("men", "mens", "man", "male", "gentleman", "boys")
+
 
 def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").lower()).strip()
@@ -77,41 +180,61 @@ def _parse_price(raw: Any) -> float:
         return 0.0
 
 
-def _looks_accessory(product: dict) -> bool:
-    blob = _norm(
+def _product_blob(product: dict) -> str:
+    return _norm(
         " ".join(
             [
                 str(product.get("name") or ""),
-                " ".join(product.get("categories") or []),
-                " ".join(product.get("tags") or []),
+                str(product.get("description") or "")[:400],
+                " ".join(str(x) for x in (product.get("categories") or [])),
+                " ".join(str(x) for x in (product.get("tags") or [])),
+                str(product.get("product_type") or ""),
             ]
         )
     )
+
+
+def _looks_accessory(product: dict) -> bool:
+    blob = _product_blob(product)
     return any(w in blob for w in _ACCESSORY_WORDS)
 
 
 def _looks_phone(product: dict) -> bool:
-    blob = _norm(
-        " ".join(
-            [
-                str(product.get("name") or ""),
-                " ".join(product.get("categories") or []),
-                " ".join(product.get("tags") or []),
-            ]
-        )
-    )
+    blob = _product_blob(product)
     if _looks_accessory(product):
         return False
     if any(w in blob for w in _PHONE_WORDS):
         return True
-    # Many phone listings are just the model name
     return bool(_MODEL_RE.search(blob))
+
+
+def extract_search_keywords(message: str) -> List[str]:
+    """Meaningful product keywords from a shopper message (not stopwords)."""
+    text = _norm(message)
+    text = text.replace("'s", "s").replace("'", "")
+    tokens = re.findall(r"[a-z0-9]+", text)
+    out: List[str] = []
+    for t in tokens:
+        if t in _STOPWORDS or len(t) < 2:
+            continue
+        if t.isdigit():
+            continue
+        if t not in out:
+            out.append(t)
+    return out
+
+
+def _keyword_variants(keyword: str) -> Tuple[str, ...]:
+    return _KEYWORD_EXPAND.get(keyword, (keyword,))
+
+
+def _blob_has_keyword(blob: str, keyword: str) -> bool:
+    return any(re.search(rf"\b{re.escape(v)}\b", blob) for v in _keyword_variants(keyword))
 
 
 def parse_query_constraints(message: str) -> Dict[str, Any]:
     text = _norm(message)
     models = [_norm(m) for m in _MODEL_RE.findall(text)]
-    # Prefer longest model string (iphone 12 pro over iphone 12)
     models = sorted(set(models), key=len, reverse=True)
 
     budget = None
@@ -124,7 +247,6 @@ def parse_query_constraints(message: str) -> Dict[str, Any]:
             except ValueError:
                 budget = None
     if budget is None:
-        # "80 Thousand" / "80k"
         m2 = re.search(r"\b(\d{1,3})\s*(?:thousand|k)\b", text, re.I)
         if m2:
             budget = float(m2.group(1)) * 1000
@@ -144,17 +266,24 @@ def parse_query_constraints(message: str) -> Dict[str, Any]:
         )
     )
     wants_phone = (not wants_accessory) and (
-        any(w in text for w in _PHONE_WORDS)
-        or bool(models)
-        or "recommend" in text
-        or "suggest" in text
+        any(w in text for w in _PHONE_WORDS) or bool(models)
     )
+
+    keywords = extract_search_keywords(message)
+    # Drop pure color tokens from required product-type keywords later via colors list
+    gender = ""
+    if any(k in ("men", "mens", "man", "male") for k in keywords):
+        gender = "men"
+    elif any(k in ("women", "womens", "woman", "female", "lady", "ladies") for k in keywords):
+        gender = "women"
 
     return {
         "models": models,
         "budget": budget,
         "wants_phone": wants_phone,
         "wants_accessory": wants_accessory,
+        "keywords": keywords,
+        "gender": gender,
         "raw": text,
     }
 
@@ -188,7 +317,6 @@ def filter_products_for_query(
         if exact:
             pool = exact
         else:
-            # Soften: keep phones that share brand token (iphone / galaxy / pixel)
             brands = []
             for model in models:
                 if model.startswith("iphone"):
@@ -206,6 +334,97 @@ def filter_products_for_query(
                 if soft:
                     pool = soft
 
+    keywords = constraints.get("keywords") or []
+    # Product-type-ish tokens (skip tiny/generic ones already filtered)
+    type_keys = [
+        k
+        for k in keywords
+        if k
+        not in (
+            "blue",
+            "black",
+            "white",
+            "red",
+            "green",
+            "pink",
+            "yellow",
+            "purple",
+            "orange",
+            "gold",
+            "silver",
+            "men",
+            "mens",
+            "man",
+            "male",
+            "women",
+            "womens",
+            "woman",
+            "female",
+            "lady",
+            "ladies",
+        )
+    ]
+
+    if type_keys:
+        typed = [p for p in pool if any(_blob_has_keyword(_product_blob(p), k) for k in type_keys)]
+        if typed:
+            pool = typed
+
+    gender = constraints.get("gender") or ""
+    if gender == "men":
+        mens = [
+            p
+            for p in pool
+            if any(m in _product_blob(p) for m in _MALE_MARKERS)
+            or not any(m in _product_blob(p) for m in _FEMALE_MARKERS)
+        ]
+        # Prefer explicitly male; else drop clearly female/dress items
+        explicit = [
+            p for p in pool if any(m in _product_blob(p) for m in _MALE_MARKERS)
+        ]
+        if explicit:
+            pool = explicit
+        else:
+            non_female = [
+                p
+                for p in pool
+                if not any(m in _product_blob(p) for m in _FEMALE_MARKERS)
+            ]
+            if non_female:
+                pool = non_female
+    elif gender == "women":
+        womens = [
+            p for p in pool if any(m in _product_blob(p) for m in _FEMALE_MARKERS)
+        ]
+        if womens:
+            pool = womens
+
+    # Color soft boost / soft filter
+    colors = []
+    for token in (
+        "black",
+        "white",
+        "blue",
+        "red",
+        "green",
+        "pink",
+        "yellow",
+        "purple",
+        "orange",
+        "gold",
+        "silver",
+    ):
+        if re.search(rf"\b{token}\b", constraints.get("raw") or ""):
+            colors.append(token)
+    constraints["colors"] = colors
+    if colors:
+        colored = [
+            p for p in pool if any(c in _product_blob(p) for c in colors)
+        ]
+        # Soft: only narrow if we still have results
+        if colored:
+            pool = colored
+
     budget = constraints["budget"]
     if budget and budget > 0:
         under = []
@@ -217,15 +436,30 @@ def filter_products_for_query(
             pool = under
 
     def rank(p: dict) -> tuple:
+        blob = _product_blob(p)
         name = _norm(str(p.get("name") or ""))
         model_hit = 0
         if models:
             model_hit = 0 if any(m in name for m in models) else 1
+        kw_miss = 0
+        for k in keywords:
+            if not _blob_has_keyword(blob, k) and k not in colors:
+                kw_miss += 1
+        color_miss = 0
+        if colors and not any(c in blob for c in colors):
+            color_miss = 1
+        gender_pen = 0
+        if gender == "men" and any(m in blob for m in _FEMALE_MARKERS):
+            gender_pen = 2
+        if gender == "women" and any(m in blob for m in _MALE_MARKERS) and not any(
+            m in blob for m in _FEMALE_MARKERS
+        ):
+            gender_pen = 1
         price = _parse_price(p.get("price") or p.get("regular_price"))
         budget_pen = 0.0
         if budget and price > 0:
             budget_pen = abs(price - budget) / max(budget, 1.0)
-        return (model_hit, budget_pen, name)
+        return (model_hit, gender_pen, color_miss, kw_miss, budget_pen, name)
 
     pool = sorted(pool, key=rank)
     return pool[:limit], constraints
@@ -241,6 +475,36 @@ def enforce_recommendation_ids(
     constraints = constraints or {}
     models = constraints.get("models") or []
     budget = constraints.get("budget")
+    keywords = constraints.get("keywords") or []
+    type_keys = [
+        k
+        for k in keywords
+        if k
+        not in (
+            "blue",
+            "black",
+            "white",
+            "red",
+            "green",
+            "pink",
+            "yellow",
+            "purple",
+            "orange",
+            "gold",
+            "silver",
+            "men",
+            "mens",
+            "man",
+            "male",
+            "women",
+            "womens",
+            "woman",
+            "female",
+            "lady",
+            "ladies",
+        )
+    ]
+    gender = constraints.get("gender") or ""
     out = []
     for item in recommended or []:
         pid = item.get("id")
@@ -248,8 +512,8 @@ def enforce_recommendation_ids(
         if not product:
             continue
         name = _norm(str(product.get("name") or ""))
+        blob = _product_blob(product)
         if models and not any(m in name for m in models):
-            # If we had exact model matches in catalog, skip mismatches
             continue
         if budget:
             price = _parse_price(product.get("price") or product.get("regular_price"))
@@ -258,5 +522,9 @@ def enforce_recommendation_ids(
         if constraints.get("wants_phone") and not constraints.get("wants_accessory"):
             if _looks_accessory(product):
                 continue
+        if type_keys and not any(_blob_has_keyword(blob, k) for k in type_keys):
+            continue
+        if gender == "men" and any(m in blob for m in ("dress", "dresses", "kimono", "blouse", "skirt")):
+            continue
         out.append({**product, "reason": item.get("reason")})
     return out

@@ -13,6 +13,7 @@ from src.services.catalog_filter import (
     _norm,
     parse_query_constraints,
     filter_products_for_query,
+    extract_search_keywords,
 )
 from src.services.woocommerce import _BROWSER_UA
 
@@ -109,16 +110,26 @@ def extract_plp_filters(message: str, products: Optional[List[dict]] = None) -> 
             storage.append(label)
 
     search_parts: List[str] = []
-    if base.get("models"):
-        search_parts.append(base["models"][0])
-    elif base.get("wants_phone"):
-        search_parts.append("phone")
-    if storage:
-        search_parts.append(storage[0])
-    if colors:
-        search_parts.append(colors[0])
-    if base.get("wants_accessory"):
-        search_parts.append("accessories")
+    keywords = extract_search_keywords(message)
+    # Prefer concrete product keywords over phone/accessory heuristics alone
+    for k in keywords:
+        if k not in search_parts:
+            search_parts.append(k)
+    if not search_parts:
+        if base.get("models"):
+            search_parts.append(base["models"][0])
+        elif base.get("wants_phone"):
+            search_parts.append("phone")
+        if storage:
+            search_parts.append(storage[0])
+        if colors:
+            search_parts.append(colors[0])
+        if base.get("wants_accessory"):
+            search_parts.append("accessories")
+    elif colors:
+        for c in colors:
+            if c not in search_parts:
+                search_parts.append(c)
 
     attr_filters: Dict[str, str] = {}
     if products and (colors or storage):
@@ -313,18 +324,166 @@ def wants_plp_navigation(message: str) -> bool:
     return False
 
 
+def _storefront_base(store_url: str) -> str:
+    """Always return an absolute https storefront origin."""
+    raw = (store_url or "").strip()
+    if not raw:
+        return ""
+    if not raw.startswith("http://") and not raw.startswith("https://"):
+        raw = "https://" + raw
+    parsed = urlparse(raw)
+    host = parsed.netloc or parsed.path.split("/")[0]
+    host = host.strip().strip("/")
+    if not host:
+        return ""
+    return f"https://{host}"
+
+
+def _is_shopify_host(store_url: str) -> bool:
+    host = _storefront_base(store_url).replace("https://", "").lower()
+    return host.endswith(".myshopify.com") or "shopify" in (store_url or "").lower()
+
+
+async def fetch_shopify_collections(store_url: str) -> List[dict]:
+    """Public collections.json when the storefront is not password-gated."""
+    base = _storefront_base(store_url)
+    if not base:
+        return []
+    cache_key = f"shopify:{base}"
+    now = time.time()
+    cached = _CATEGORY_CACHE.get(cache_key)
+    if cached and cached[0] > now:
+        return cached[1]
+
+    items: List[dict] = []
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as client:
+            resp = await client.get(
+                f"{base}/collections.json",
+                params={"limit": 250},
+                headers={"User-Agent": _BROWSER_UA, "Accept": "application/json"},
+            )
+            if resp.status_code < 400:
+                data = resp.json()
+                for c in data.get("collections") or []:
+                    handle = (c.get("handle") or "").lower()
+                    if not handle:
+                        continue
+                    items.append(
+                        {
+                            "id": c.get("id"),
+                            "slug": handle,
+                            "name": c.get("title") or handle,
+                            "parent": 0,
+                            "count": c.get("products_count") or 0,
+                            "link": f"{base}/collections/{handle}",
+                        }
+                    )
+    except Exception as e:
+        print(f"── Shopify collections fetch failed: {e}")
+
+    _CATEGORY_CACHE[cache_key] = (now + _CATEGORY_TTL, items)
+    return items
+
+
+def resolve_shopify_collection(
+    collections: List[dict], filters: Dict[str, Any]
+) -> Tuple[str, str]:
+    """Match a collection handle from keywords (e.g. jeans → /collections/jeans)."""
+    if not collections:
+        return "", ""
+    by_slug = {c["slug"]: c for c in collections if c.get("slug")}
+    keywords = list(filters.get("search_parts") or []) + list(
+        (filters.get("constraints") or {}).get("keywords") or []
+    )
+    text = " ".join(keywords + [filters.get("raw") or ""]).lower()
+
+    # Prefer non-"all" collections whose handle/title appears in the query
+    ranked = []
+    for c in collections:
+        slug = c.get("slug") or ""
+        if slug in ("all", "frontpage"):
+            continue
+        name = _norm(c.get("name") or "")
+        score = 0
+        if slug and slug in text.replace(" ", "-"):
+            score += 3
+        if slug and slug.replace("-", " ") in text:
+            score += 3
+        for part in slug.split("-"):
+            if len(part) > 2 and re.search(rf"\b{re.escape(part)}\b", text):
+                score += 1
+        for tok in name.split():
+            if len(tok) > 2 and re.search(rf"\b{re.escape(tok)}\b", text):
+                score += 1
+        if score:
+            ranked.append((score, len(slug), c))
+    if ranked:
+        ranked.sort(key=lambda x: (-x[0], x[1]))
+        best = ranked[0][2]
+        return best.get("link") or "", best.get("slug") or ""
+
+    if "all" in by_slug:
+        return by_slug["all"].get("link") or "", "all"
+    return "", ""
+
+
+def build_shopify_plp_url(
+    store_url: str, filters: Dict[str, Any], collections: Optional[List[dict]] = None
+) -> Tuple[str, str]:
+    """
+    Shopify listing URLs:
+      - matched collection: /collections/{handle}?q=...
+      - else search: /search?q=...
+      - else all products: /collections/all
+    Always absolute https.
+    """
+    base = _storefront_base(store_url)
+    if not base:
+        return "", ""
+
+    collections = collections or []
+    cat_url, cat_slug = resolve_shopify_collection(collections, filters)
+    search = " ".join(filters.get("search_parts") or []).strip()
+    # Clean search — avoid dumping the shop domain into q=
+    host = base.replace("https://", "")
+    if search.lower() == host.lower():
+        search = ""
+
+    if cat_url and cat_slug and cat_slug != "all":
+        url = cat_url
+        if search:
+            url = _append_query(url, {"q": search})
+        return url, cat_slug
+
+    if search:
+        return _append_query(f"{base}/search", {"q": search, "type": "product"}), "search"
+
+    # Full catalog listing page used by this theme
+    return f"{base}/collections/all", "all"
+
+
 async def build_plp_url(
     store_url: str,
     message: str,
     products: Optional[List[dict]] = None,
+    *,
+    platform: str = "",
 ) -> Tuple[str, Dict[str, Any]]:
     """
-    Build the real store listing URL using live product_cat permalinks
-    (e.g. /begagnad-iphone/iphone-12/), plus optional filter query args.
+    Build the real store listing URL.
+    WooCommerce: product_cat permalinks (e.g. /begagnad-iphone/iphone-12/).
+    Shopify: /search?q=... or /collections/{handle} or /collections/all.
     """
-    base = (store_url or "").rstrip("/")
-    if not base:
+    base_raw = (store_url or "").rstrip("/")
+    if not base_raw:
         return "", {}
+
+    platform = (platform or "").lower()
+    if platform == "wordpress":
+        platform = "woocommerce"
+    if not platform:
+        platform = "shopify" if _is_shopify_host(base_raw) else "woocommerce"
 
     filters = extract_plp_filters(message, products)
     matched, constraints = filter_products_for_query(products or [], message, limit=50)
@@ -332,45 +491,65 @@ async def build_plp_url(
     filters["constraints"] = {
         "models": constraints.get("models") or [],
         "budget": constraints.get("budget"),
+        "keywords": constraints.get("keywords") or [],
+        "gender": constraints.get("gender") or "",
     }
+    # Prefer keyword-rich search_parts from catalog filter
+    kw = constraints.get("keywords") or []
+    if kw:
+        merged = []
+        for part in list(kw) + list(filters.get("search_parts") or []):
+            if part and part not in merged:
+                merged.append(part)
+        filters["search_parts"] = merged
 
-    categories = await fetch_product_categories(base)
-    cat_url, cat_slug = resolve_category_link(categories, filters)
-    filters["category_slug"] = cat_slug
-    filters["category_url"] = cat_url
-
-    params: Dict[str, Any] = {}
-    budget = filters.get("budget")
-    if budget and budget > 0:
-        params["max_price"] = int(budget)
-        params["min_price"] = 0
-
-    for k, v in (filters.get("attr_filters") or {}).items():
-        params[k] = v
-
-    # Only add search when we lack a solid category landing (keeps PLP clean)
-    if not cat_url:
-        params["post_type"] = "product"
-        search = " ".join(filters.get("search_parts") or []).strip()
-        if search:
-            params["s"] = search
-        url = f"{base}/"
-        url = _append_query(url, params)
+    if platform == "shopify":
+        collections = await fetch_shopify_collections(base_raw)
+        url, cat_slug = build_shopify_plp_url(base_raw, filters, collections)
+        filters["category_slug"] = cat_slug
+        filters["category_url"] = url
+        filters["platform"] = "shopify"
     else:
-        # On a category PLP, avoid redundant `s=` which can break theme filters
-        url = _append_query(cat_url, params)
+        base = base_raw if base_raw.startswith("http") else f"https://{base_raw}"
+        categories = await fetch_product_categories(base)
+        cat_url, cat_slug = resolve_category_link(categories, filters)
+        filters["category_slug"] = cat_slug
+        filters["category_url"] = cat_url
+        filters["platform"] = "woocommerce"
+
+        params: Dict[str, Any] = {}
+        budget = filters.get("budget")
+        if budget and budget > 0:
+            params["max_price"] = int(budget)
+            params["min_price"] = 0
+
+        for k, v in (filters.get("attr_filters") or {}).items():
+            params[k] = v
+
+        if not cat_url:
+            params["post_type"] = "product"
+            search = " ".join(filters.get("search_parts") or []).strip()
+            if search:
+                params["s"] = search
+            url = _append_query(f"{base}/", params)
+        else:
+            url = _append_query(cat_url, params)
 
     label_bits = []
     if filters.get("models"):
         label_bits.append(filters["models"][0])
+    parts = filters.get("search_parts") or []
+    if parts and not label_bits:
+        label_bits.extend(parts[:4])
     if filters.get("storage"):
         label_bits.append(filters["storage"][0].upper())
-    if filters.get("colors"):
+    if filters.get("colors") and filters["colors"][0] not in label_bits:
         label_bits.append(filters["colors"][0])
+    budget = filters.get("budget")
     if budget:
         label_bits.append(f"under {int(budget)}")
     filters["label"] = " · ".join(label_bits) if label_bits else (
-        cat_slug or "products"
+        filters.get("category_slug") or "products"
     )
     filters["url"] = url
     return url, filters
@@ -384,7 +563,10 @@ def plp_message(filters: Dict[str, Any], *, navigating: bool = True) -> str:
     url = filters.get("url") or filters.get("category_url") or ""
     if url:
         try:
-            path = urlparse(url).path or ""
+            parsed = urlparse(url)
+            path = parsed.path or ""
+            if parsed.query:
+                path = f"{path}?{parsed.query}"
         except Exception:
             path = ""
     path_bit = f" → `{path}`" if path else ""
