@@ -61,14 +61,31 @@ async def chat(body: ChatRequest):
     add_message(body.session_id, "user", body.message)
 
     try:
-        # Live Woo catalog is preferred for product cards. If WC auth fails
-        # (common on WP Engine), continue with RAG knowledge so chat still answers.
         products: list = []
+        catalog_error = ""
         order_lookup = None
         try:
             products = await fetch_products(tenant)
         except WooConfigError as e:
-            print(f"── Chat catalog fallback (WooCommerce unavailable): {e}")
+            catalog_error = str(e)
+            print(f"── Chat catalog unavailable: {e}")
+
+        # Product recommendations need the live WooCommerce catalog (REST API).
+        # Sync/RAG is separate and is not used for product cards.
+        wants_products = _looks_like_product_request(body.message)
+        if wants_products and not products:
+            msg = catalog_error or (
+                "I could not load products from your WooCommerce store yet. "
+                "Open Merchant Dashboard → Settings → Store connection, save a working "
+                "Consumer Key/Secret for this store URL, then try again. "
+                "(Chat reads products via the WooCommerce REST API — not the WordPress database, "
+                "and not Train AI sync.)"
+            )
+            add_message(body.session_id, "assistant", msg)
+            return {
+                "success": True,
+                "response": {"type": "question", "message": msg},
+            }
 
         fresh_session = get_session(body.session_id)
         if not fresh_session:
@@ -99,25 +116,30 @@ async def chat(body: ChatRequest):
             parsed = json.loads(cleaned)
             if parsed.get("type") == "recommendations":
                 enriched = []
-                for item in parsed["products"]:
+                for item in parsed.get("products") or []:
                     product = next((p for p in products if p["id"] == item["id"]), None)
                     if product:
-                        enriched.append({**product, "reason": item["reason"]})
+                        enriched.append({**product, "reason": item.get("reason")})
 
                 if enriched:
                     return {
                         "success": True,
                         "response": {
                             "type": "recommendations",
-                            "message": parsed["message"],
+                            "message": parsed.get("message")
+                            or "Based on your needs, here are my top picks:",
                             "products": enriched,
                         },
                     }
-                # No live catalog match — show the text message instead of failing
-                text = parsed.get("message") or ai_response
+                # Model returned IDs we cannot resolve — never show empty cards
+                fallback = (
+                    catalog_error
+                    or "I could not match products from the live catalog. Please try again, "
+                    "or check WooCommerce API keys under Settings → Store connection."
+                )
                 return {
                     "success": True,
-                    "response": {"type": "question", "message": text},
+                    "response": {"type": "question", "message": fallback},
                 }
 
         except json.JSONDecodeError:
@@ -143,3 +165,26 @@ async def chat(body: ChatRequest):
         if detail:
             raise HTTPException(status_code=400, detail=detail)
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+def _looks_like_product_request(message: str) -> bool:
+    text = (message or "").strip().lower()
+    if not text:
+        return False
+    keys = (
+        "recommend",
+        "phone",
+        "product",
+        "buy",
+        "best",
+        "under",
+        "accessory",
+        "accessories",
+        "iphone",
+        "samsung",
+        "find",
+        "suggest",
+        "looking for",
+        "show me",
+    )
+    return any(k in text for k in keys)
