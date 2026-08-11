@@ -269,6 +269,40 @@
       color: #ffffff;
       cursor: default;
     }
+    .cb-plp-card {
+      background: white;
+      border-radius: 12px;
+      padding: 12px;
+      margin: 6px 0;
+      max-width: 92%;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      border: 1px solid #ececf3;
+    }
+    .cb-plp-filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 8px 0 10px;
+    }
+    .cb-plp-chip {
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #f0ecff;
+      color: #4b35b0;
+      font-weight: 600;
+    }
+    .cb-plp-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .cb-plp-note {
+      font-size: 11px;
+      color: #888;
+      margin-top: 8px;
+    }
     .cb-toast {
       align-self: center;
       background: #1a1a1a;
@@ -595,12 +629,10 @@
     }
   }
 
-  function addProductCards(message, products) {
-    // First show the AI intro message
-    addMessage(message, 'bot');
+  function addProductCards(message, products, plpUrl, filters, plpMessage) {
+    if (message) addMessage(message, 'bot');
 
-    // Then render one card per product
-    products.forEach(function (p) {
+    (products || []).forEach(function (p) {
       const card = document.createElement('div');
       card.className = 'cb-product-card';
 
@@ -640,7 +672,103 @@
       messagesEl.appendChild(card);
     });
 
+    if (plpUrl) {
+      addPlpNavigateCard(
+        plpMessage || 'Browse all matching products on the shop page.',
+        plpUrl,
+        filters || {},
+        false
+      );
+    }
+
     scrollToBottom();
+  }
+
+  function addPlpNavigateCard(message, url, filters, autoNavigate) {
+    if (message) addMessage(message, 'bot');
+    if (!url) return;
+
+    const card = document.createElement('div');
+    card.className = 'cb-plp-card';
+
+    const chips = [];
+    const f = filters || {};
+    (f.models || []).forEach(function (m) { chips.push(m); });
+    (f.storage || []).forEach(function (s) { chips.push(String(s).toUpperCase()); });
+    (f.colors || []).forEach(function (c) { chips.push(c); });
+    if (f.budget) chips.push('under ' + f.budget);
+    if (f.category_slug) chips.push(f.category_slug);
+
+    let chipsHtml = '';
+    if (chips.length) {
+      chipsHtml = '<div class="cb-plp-filters">' +
+        chips.map(function (c) {
+          return '<span class="cb-plp-chip"></span>';
+        }).join('') +
+        '</div>';
+    }
+
+    card.innerHTML =
+      chipsHtml +
+      '<div class="cb-plp-actions">' +
+        '<button type="button" class="cb-product-btn cb-plp-go">View filtered products</button>' +
+        (autoNavigate
+          ? '<button type="button" class="cb-product-btn cb-product-btn-secondary cb-plp-stay">Stay in chat</button>'
+          : '') +
+      '</div>' +
+      (autoNavigate
+        ? '<div class="cb-plp-note cb-plp-countdown">Opening shop in <span class="cb-plp-secs">2</span>s…</div>'
+        : '<div class="cb-plp-note">Opens the store listing with your filters applied.</div>');
+
+    const chipNodes = card.querySelectorAll('.cb-plp-chip');
+    chipNodes.forEach(function (node, i) {
+      node.textContent = chips[i] || '';
+    });
+
+    let cancelled = false;
+    let timer = null;
+
+    function go() {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+      try {
+        window.dispatchEvent(new CustomEvent('asa:plp-navigate', {
+          detail: { url: url, filters: f }
+        }));
+      } catch (e) { /* ignore */ }
+      window.location.href = url;
+    }
+
+    card.querySelector('.cb-plp-go').addEventListener('click', go);
+    const stayBtn = card.querySelector('.cb-plp-stay');
+    if (stayBtn) {
+      stayBtn.addEventListener('click', function () {
+        cancelled = true;
+        if (timer) clearInterval(timer);
+        const note = card.querySelector('.cb-plp-countdown');
+        if (note) note.textContent = 'Okay — staying in chat. Use the button anytime.';
+      });
+    }
+
+    messagesEl.appendChild(card);
+    scrollToBottom();
+
+    if (autoNavigate) {
+      let left = 2;
+      const secs = card.querySelector('.cb-plp-secs');
+      timer = setInterval(function () {
+        if (cancelled) {
+          clearInterval(timer);
+          return;
+        }
+        left -= 1;
+        if (secs) secs.textContent = String(left);
+        if (left <= 0) {
+          clearInterval(timer);
+          go();
+        }
+      }, 1000);
+    }
   }
 
   // Enable or disable the send button
@@ -786,8 +914,25 @@
       if (res.ok && data && data.success) {
         const response = data.response;
 
-        if (response.type === 'recommendations') {
-          addProductCards(response.message, response.products);
+        if (response.type === 'navigate') {
+          if (response.message) addMessage(response.message, 'bot');
+          if (response.products && response.products.length) {
+            addProductCards('', response.products);
+          }
+          addPlpNavigateCard(
+            '',
+            response.url,
+            response.filters || {},
+            response.auto_navigate !== false
+          );
+        } else if (response.type === 'recommendations') {
+          addProductCards(
+            response.message,
+            response.products || [],
+            response.plp_url || '',
+            response.filters || {},
+            response.plp_message || ''
+          );
         } else {
           const botText = response.message || response.content;
           addMessage(botText, 'bot');
