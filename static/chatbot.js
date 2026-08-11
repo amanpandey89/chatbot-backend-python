@@ -695,6 +695,9 @@
     (f.models || []).forEach(function (m) { chips.push(m); });
     (f.storage || []).forEach(function (s) { chips.push(String(s).toUpperCase()); });
     (f.colors || []).forEach(function (c) { chips.push(c); });
+    (f.search_parts || []).forEach(function (s) {
+      if (chips.indexOf(s) === -1) chips.push(s);
+    });
     if (f.budget) chips.push('under ' + f.budget);
     if (f.category_slug) chips.push(f.category_slug);
 
@@ -712,7 +715,7 @@
       '<div class="cb-plp-actions">' +
         '<button type="button" class="cb-product-btn cb-plp-go">View filtered products</button>' +
       '</div>' +
-      '<div class="cb-plp-note">Opens the store listing with your filters applied.</div>';
+      '<div class="cb-plp-note">Opens the store listing in a new tab with your filters applied.</div>';
 
     const chipNodes = card.querySelectorAll('.cb-plp-chip');
     chipNodes.forEach(function (node, i) {
@@ -725,7 +728,11 @@
           detail: { url: url, filters: f }
         }));
       } catch (e) { /* ignore */ }
-      window.location.href = url;
+      var abs = url;
+      if (abs && abs.indexOf('http://') !== 0 && abs.indexOf('https://') !== 0) {
+        abs = 'https://' + abs.replace(/^\/+/, '');
+      }
+      window.open(abs, '_blank', 'noopener,noreferrer');
     });
 
     messagesEl.appendChild(card);

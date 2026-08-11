@@ -111,7 +111,9 @@ async def chat(body: ChatRequest):
 
         # ── PLP navigation (browse / filter intent) ───────────────────────
         if wants_plp_navigation(body.message) and store_url:
-            plp_url, filters = await build_plp_url(store_url, body.message, products)
+            plp_url, filters = await build_plp_url(
+                store_url, body.message, products, platform=platform
+            )
             if plp_url:
                 msg = plp_message(filters, navigating=True)
                 add_message(body.session_id, "assistant", msg)
@@ -164,7 +166,7 @@ async def chat(body: ChatRequest):
             )
             if store_url:
                 plp_url, plp_filters = await build_plp_url(
-                    store_url, body.message, products
+                    store_url, body.message, products, platform=platform
                 )
             if not catalog_for_ai:
                 constraints = parse_query_constraints(body.message)
