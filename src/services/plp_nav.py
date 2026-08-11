@@ -537,20 +537,37 @@ async def build_plp_url(
 
     label_bits = []
     if filters.get("models"):
-        label_bits.append(filters["models"][0])
-    parts = filters.get("search_parts") or []
-    if parts and not label_bits:
-        label_bits.extend(parts[:4])
+        # Title-case model for display: iphone 12 → iPhone 12
+        model = filters["models"][0]
+        if model.startswith("iphone"):
+            label_bits.append("iPhone" + model[6:])
+        else:
+            label_bits.append(model)
+    elif filters.get("search_parts"):
+        # Avoid dumping duplicate noise; keep first few unique shopper terms
+        seen = set()
+        for part in filters["search_parts"]:
+            key = _norm(str(part))
+            if not key or key in seen:
+                continue
+            if key in ("iphone", "phone", "product", "products"):
+                continue
+            seen.add(key)
+            label_bits.append(str(part))
+            if len(label_bits) >= 4:
+                break
     if filters.get("storage"):
-        label_bits.append(filters["storage"][0].upper())
-    if filters.get("colors") and filters["colors"][0] not in label_bits:
-        label_bits.append(filters["colors"][0])
+        bit = filters["storage"][0].upper()
+        if bit.lower() not in {_norm(x) for x in label_bits}:
+            label_bits.append(bit)
+    if filters.get("colors"):
+        bit = filters["colors"][0]
+        if bit.lower() not in {_norm(x) for x in label_bits}:
+            label_bits.append(bit)
     budget = filters.get("budget")
     if budget:
         label_bits.append(f"under {int(budget)}")
-    filters["label"] = " · ".join(label_bits) if label_bits else (
-        filters.get("category_slug") or "products"
-    )
+    filters["label"] = " · ".join(label_bits) if label_bits else "products"
     filters["url"] = url
     return url, filters
 
@@ -558,21 +575,16 @@ async def build_plp_url(
 def plp_message(filters: Dict[str, Any], *, navigating: bool = True) -> str:
     label = filters.get("label") or "matching products"
     count = filters.get("match_count")
-    count_bit = f" ({count} in catalog)" if isinstance(count, int) and count > 0 else ""
-    path = ""
-    url = filters.get("url") or filters.get("category_url") or ""
-    if url:
-        try:
-            parsed = urlparse(url)
-            path = parsed.path or ""
-            if parsed.query:
-                path = f"{path}?{parsed.query}"
-        except Exception:
-            path = ""
-    path_bit = f" → `{path}`" if path else ""
+    if isinstance(count, int) and count > 0:
+        count_bit = f" ({count} found)"
+    else:
+        count_bit = ""
     if navigating:
         return (
-            f"I found the product list for **{label}**{count_bit}{path_bit}. "
-            "Tap below to open it with your filters."
+            f"I found products for **{label}**{count_bit}. "
+            "Here are a few matches — use the button below to open the full filtered list in the store."
         )
-    return f"You can also browse all **{label}**{count_bit} on the shop page{path_bit}."
+    return (
+        f"You can also browse all **{label}**{count_bit} on the shop page "
+        "with the button below."
+    )

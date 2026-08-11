@@ -208,19 +208,24 @@
       flex-direction: column;
       gap: 6px;
       width: 100%;
+      max-width: 92%;
       box-sizing: border-box;
+      margin: 6px 0;
+      flex-shrink: 0;
     }
     .cb-product-card img {
       width: 100%;
-      height: 140px;
-      object-fit: cover;
+      height: 148px;
+      object-fit: contain;
       border-radius: 8px;
-      background: #eee;
+      background: #f4f4f8;
     }
     .cb-product-name {
       font-weight: 600;
       color: #1a1a1a;
       font-size: 14px;
+      line-height: 1.35;
+      word-break: break-word;
     }
     .cb-product-price {
       color: #6c47ff;
@@ -231,6 +236,13 @@
       color: #555;
       font-size: 12px;
       line-height: 1.4;
+      word-break: break-word;
+    }
+    .cb-msg-bot code {
+      font-size: 12px;
+      background: #f0ecff;
+      padding: 1px 6px;
+      border-radius: 4px;
     }
     .cb-product-btn {
       display: inline-block;
@@ -460,6 +472,17 @@
     // Bold **text** or __text__
     t = t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
     t = t.replace(/__(.+?)__/g, '<strong>$1</strong>');
+
+    // Inline code `path` — keep short; hide long query strings
+    t = t.replace(/`([^`]+)`/g, function (_, code) {
+      if (code.length > 48 || code.indexOf('?') !== -1 || code.indexOf('filter_') !== -1) {
+        return '';
+      }
+      return '<code>' + code + '</code>';
+    });
+    // Clean leftover arrows from old path formatting
+    t = t.replace(/\s*→\s*/g, ' ');
+    t = t.replace(/\s{2,}/g, ' ');
 
     // Italic *text* or _text_ (avoid matching inside words for _)
     t = t.replace(/(^|[^\w*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
@@ -691,15 +714,27 @@
     card.className = 'cb-plp-card';
 
     const chips = [];
+    const seen = {};
+    function addChip(value) {
+      const raw = String(value || '').trim();
+      if (!raw) return;
+      const key = raw.toLowerCase();
+      if (seen[key]) return;
+      seen[key] = true;
+      chips.push(raw);
+    }
+
     const f = filters || {};
-    (f.models || []).forEach(function (m) { chips.push(m); });
-    (f.storage || []).forEach(function (s) { chips.push(String(s).toUpperCase()); });
-    (f.colors || []).forEach(function (c) { chips.push(c); });
-    (f.search_parts || []).forEach(function (s) {
-      if (chips.indexOf(s) === -1) chips.push(s);
+    (f.models || []).forEach(function (m) {
+      var label = String(m);
+      if (label.toLowerCase().indexOf('iphone') === 0) {
+        label = 'iPhone' + label.slice(6);
+      }
+      addChip(label);
     });
-    if (f.budget) chips.push('under ' + f.budget);
-    if (f.category_slug) chips.push(f.category_slug);
+    (f.storage || []).forEach(function (s) { addChip(String(s).toUpperCase()); });
+    (f.colors || []).forEach(function (c) { addChip(c); });
+    if (f.budget) addChip('under ' + f.budget);
 
     let chipsHtml = '';
     if (chips.length) {
