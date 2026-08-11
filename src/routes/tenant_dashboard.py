@@ -172,6 +172,48 @@ def _authed_redirect(store_id: str, path: str = "", request: Optional[Request] =
     return resp
 
 
+def _sanitize_flash(message: str) -> str:
+    return (
+        (message or "")
+        .replace("—", "-")
+        .replace("–", "-")
+        .replace("…", "...")
+        .encode("latin-1", "replace")
+        .decode("latin-1")
+    )[:450]
+
+
+def _read_flash(request: Request) -> tuple[str, str]:
+    """Flash via query (Shopify iframe-safe) or cookie fallback."""
+    flash = (
+        request.query_params.get("asa_flash")
+        or request.cookies.get("asa_tenant_flash")
+        or ""
+    ).strip()
+    flash_type = (
+        request.query_params.get("asa_flash_type")
+        or request.cookies.get("asa_tenant_flash_type")
+        or "ok"
+    ).strip().lower()
+    if flash_type not in ("ok", "error"):
+        flash_type = "ok"
+    return flash, flash_type
+
+
+def _clear_flash_cookies(resp, request: Optional[Request] = None):
+    from src.services.tenant_auth import _use_secure_cookies
+
+    secure = _use_secure_cookies(request)
+    for name in ("asa_tenant_flash", "asa_tenant_flash_type"):
+        resp.delete_cookie(
+            name,
+            path="/",
+            secure=secure,
+            samesite="none" if secure else "lax",
+        )
+    return resp
+
+
 def _flash_redirect(
     store_id: str,
     path: str,
@@ -180,22 +222,37 @@ def _flash_redirect(
     *,
     error: bool = False,
 ):
-    resp = _authed_redirect(store_id, path, request=request)
-    # Cookie values must be Latin-1; strip fancy punctuation that caused 500s.
-    safe = (
-        (message or "")
-        .replace("—", "-")
-        .replace("–", "-")
-        .replace("…", "...")
-        .encode("latin-1", "replace")
-        .decode("latin-1")
-    )[:450]
-    resp.set_cookie("asa_tenant_flash", safe, max_age=12, path="/")
+    from urllib.parse import urlencode, urlparse, parse_qsl, urlunparse
+    from src.services.tenant_auth import _use_secure_cookies
+
+    # Prefer query-string flash — cookies are often blocked inside Shopify admin iframe.
+    base = app_url_with_session(store_id, path)
+    safe = _sanitize_flash(message)
+    parsed = urlparse(base)
+    q = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    q["asa_flash"] = safe
+    q["asa_flash_type"] = "error" if error else "ok"
+    url = urlunparse(parsed._replace(query=urlencode(q)))
+
+    resp = RedirectResponse(url=url, status_code=303)
+    set_tenant_cookie(resp, store_id, request=request)
+
+    secure = _use_secure_cookies(request)
+    resp.set_cookie(
+        "asa_tenant_flash",
+        safe,
+        max_age=60,
+        path="/",
+        secure=secure,
+        samesite="none" if secure else "lax",
+    )
     resp.set_cookie(
         "asa_tenant_flash_type",
         "error" if error else "ok",
-        max_age=12,
+        max_age=60,
         path="/",
+        secure=secure,
+        samesite="none" if secure else "lax",
     )
     return resp
 
@@ -509,7 +566,7 @@ def app_train(request: Request, store_id: str):
     tenant = get_tenant(store_id, include_secrets=False)
     settings = training_svc.get_tenant_settings(store_id)
     entries = training_svc.list_knowledge(store_id, include_inactive=True)
-    flash = request.cookies.get("asa_tenant_flash")
+    flash, flash_type = _read_flash(request)
     resp = _render(
         request,
         "tenant/train.html",
@@ -520,13 +577,14 @@ def app_train(request: Request, store_id: str):
             "entries": entries,
             "rag": overview_stats(store_id),
             "flash": flash,
+            "flash_type": flash_type,
             "error": None,
             "active_nav": "train",
             "fmt": _fmt,
         },
     )
     if flash:
-        resp.delete_cookie("asa_tenant_flash")
+        _clear_flash_cookies(resp, request)
     return resp
 
 
@@ -594,7 +652,7 @@ def app_train_sources(request: Request, store_id: str, source_type: str = ""):
     if denied:
         return denied
     tenant = get_tenant(store_id, include_secrets=False)
-    flash = request.cookies.get("asa_tenant_flash")
+    flash, flash_type = _read_flash(request)
     st = (source_type or "").strip() or None
     resp = _render(
         request,
@@ -607,12 +665,13 @@ def app_train_sources(request: Request, store_id: str, source_type: str = ""):
             "source_type": st or "",
             "exclusions": list_exclusions(store_id),
             "flash": flash,
+            "flash_type": flash_type,
             "active_nav": "sources",
             "fmt": _fmt,
         },
     )
     if flash:
-        resp.delete_cookie("asa_tenant_flash")
+        _clear_flash_cookies(resp, request)
     return resp
 
 
@@ -697,8 +756,7 @@ def app_train_sync(request: Request, store_id: str):
     openai_ok, openai_err = _openai_ready(store_id)
     safe_tenant["has_openai_key"] = openai_ok
     safe_tenant["openai_error"] = openai_err
-    flash = request.cookies.get("asa_tenant_flash")
-    flash_type = request.cookies.get("asa_tenant_flash_type") or "ok"
+    flash, flash_type = _read_flash(request)
     jobs = list_jobs(store_id)
     sync_active = has_active_job(store_id)
     resp = _render(
@@ -717,8 +775,7 @@ def app_train_sync(request: Request, store_id: str):
         },
     )
     if flash:
-        resp.delete_cookie("asa_tenant_flash")
-        resp.delete_cookie("asa_tenant_flash_type")
+        _clear_flash_cookies(resp, request)
     return resp
 
 
@@ -965,8 +1022,7 @@ def app_settings(request: Request, store_id: str):
     tenant = get_tenant(store_id, include_secrets=True) or {}
     api_key = ensure_tenant_api_key(store_id)
     backend = str(request.base_url).rstrip("/")
-    flash = request.cookies.get("asa_tenant_flash")
-    flash_type = request.cookies.get("asa_tenant_flash_type") or "ok"
+    flash, flash_type = _read_flash(request)
     platform = (tenant.get("platform") or "woocommerce").lower()
     if platform == "wordpress":
         platform = "woocommerce"
@@ -1015,8 +1071,7 @@ def app_settings(request: Request, store_id: str):
         },
     )
     if flash:
-        resp.delete_cookie("asa_tenant_flash")
-        resp.delete_cookie("asa_tenant_flash_type")
+        _clear_flash_cookies(resp, request)
     return resp
 
 

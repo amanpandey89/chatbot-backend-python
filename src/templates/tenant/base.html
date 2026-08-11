@@ -263,6 +263,17 @@
       var titleEl = document.getElementById('asaBusyTitle');
       var subEl = document.getElementById('asaBusySub');
       if (!overlay) return;
+      var busyTimer = null;
+
+      function hideBusy() {
+        overlay.hidden = true;
+        overlay.classList.remove('is-open');
+        document.body.classList.remove('asa-busy-lock');
+        if (busyTimer) {
+          clearTimeout(busyTimer);
+          busyTimer = null;
+        }
+      }
 
       function showBusy(title, sub) {
         if (titleEl) titleEl.textContent = title || 'Working…';
@@ -270,9 +281,17 @@
         overlay.hidden = false;
         overlay.classList.add('is-open');
         document.body.classList.add('asa-busy-lock');
+        if (busyTimer) clearTimeout(busyTimer);
+        // Safety: if navigation never completes (network / iframe drop), unlock UI.
+        busyTimer = setTimeout(function () {
+          hideBusy();
+          alert('The request is taking too long or the result could not be shown. Refresh the page and try again.');
+        }, 45000);
       }
 
       window.asaShowBusy = showBusy;
+      window.asaHideBusy = hideBusy;
+      window.addEventListener('pageshow', hideBusy);
 
       document.querySelectorAll('form[data-busy]').forEach(function (form) {
         form.addEventListener('submit', function () {
@@ -296,6 +315,12 @@
           }, 0);
         });
       });
+
+      // Keep flash banner visible after Shopify iframe redirects
+      var flash = document.querySelector('.flash');
+      if (flash) {
+        try { flash.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) {}
+      }
     })();
   </script>
 </body>
