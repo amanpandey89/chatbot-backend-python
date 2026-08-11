@@ -217,7 +217,8 @@ def extract_search_keywords(message: str) -> List[str]:
     for t in tokens:
         if t in _STOPWORDS or len(t) < 2:
             continue
-        if t.isdigit():
+        # Keep short model numbers (12, 14, 15); drop long numeric noise
+        if t.isdigit() and len(t) > 3:
             continue
         if t not in out:
             out.append(t)
@@ -230,6 +231,35 @@ def _keyword_variants(keyword: str) -> Tuple[str, ...]:
 
 def _blob_has_keyword(blob: str, keyword: str) -> bool:
     return any(re.search(rf"\b{re.escape(v)}\b", blob) for v in _keyword_variants(keyword))
+
+
+def _model_matches_name(model: str, name: str) -> bool:
+    """True if product name is this phone model (not a higher/lower generation)."""
+    m = _norm(model)
+    n = _norm(name)
+    if not m or not n:
+        return False
+    if m in n:
+        return True
+    if m.replace(" ", "") in n.replace(" ", ""):
+        return True
+    tokens = [t for t in m.split() if t]
+    if not tokens:
+        return False
+    # All tokens must appear; for "iphone 12" require both so iPhone 14 is excluded
+    if not all(re.search(rf"\b{re.escape(t)}\b", n) for t in tokens):
+        return False
+    # If model has a generation number, reject other generations in the name
+    nums = [t for t in tokens if t.isdigit()]
+    if nums:
+        # e.g. name "iphone 14" should not match model "iphone 12"
+        other = re.findall(
+            r"\b(?:iphone|galaxy|pixel)\s*(?:se|s)?\s*([0-9]{1,2})\b", n, re.I
+        )
+        for found in other:
+            if found not in nums:
+                return False
+    return True
 
 
 def parse_query_constraints(message: str) -> Dict[str, Any]:
@@ -270,7 +300,13 @@ def parse_query_constraints(message: str) -> Dict[str, Any]:
     )
 
     keywords = extract_search_keywords(message)
-    # Drop pure color tokens from required product-type keywords later via colors list
+    # When a phone model is present, drop brand/generation tokens from free-text keywords
+    if models:
+        drop = {"iphone", "galaxy", "pixel", "samsung", "phone", "phones", "mobil"}
+        for model in models:
+            drop.update(model.split())
+        keywords = [k for k in keywords if k not in drop]
+
     gender = ""
     if any(k in ("men", "mens", "man", "male") for k in keywords):
         gender = "men"
@@ -308,34 +344,37 @@ def filter_products_for_query(
             pool = accessories
 
     models = constraints["models"]
+    model_locked = False
     if models:
-        exact = []
-        for p in pool:
-            name = _norm(str(p.get("name") or ""))
-            if any(model in name for model in models):
-                exact.append(p)
+        exact = [
+            p
+            for p in pool
+            if any(
+                _model_matches_name(model, str(p.get("name") or "")) for model in models
+            )
+        ]
         if exact:
             pool = exact
+            model_locked = True
         else:
-            brands = []
-            for model in models:
-                if model.startswith("iphone"):
-                    brands.append("iphone")
-                elif "galaxy" in model:
-                    brands.append("galaxy")
-                elif model.startswith("pixel"):
-                    brands.append("pixel")
-            if brands:
-                soft = [
-                    p
-                    for p in pool
-                    if any(b in _norm(str(p.get("name") or "")) for b in brands)
-                ]
-                if soft:
-                    pool = soft
+            # Soft: same brand + same generation number when possible
+            soft = []
+            for p in pool:
+                name = _norm(str(p.get("name") or ""))
+                for model in models:
+                    brand = model.split()[0] if model.split() else ""
+                    nums = [t for t in model.split() if t.isdigit()]
+                    if brand and brand not in name:
+                        continue
+                    if nums and not any(re.search(rf"\b{re.escape(n)}\b", name) for n in nums):
+                        continue
+                    soft.append(p)
+                    break
+            if soft:
+                pool = soft
+                model_locked = True
 
     keywords = constraints.get("keywords") or []
-    # Product-type-ish tokens (skip tiny/generic ones already filtered)
     type_keys = [
         k
         for k in keywords
@@ -365,20 +404,16 @@ def filter_products_for_query(
         )
     ]
 
-    if type_keys:
-        typed = [p for p in pool if any(_blob_has_keyword(_product_blob(p), k) for k in type_keys)]
+    # Do not re-broaden a locked phone-model pool with generic type keywords
+    if type_keys and not model_locked:
+        typed = [
+            p for p in pool if any(_blob_has_keyword(_product_blob(p), k) for k in type_keys)
+        ]
         if typed:
             pool = typed
 
     gender = constraints.get("gender") or ""
     if gender == "men":
-        mens = [
-            p
-            for p in pool
-            if any(m in _product_blob(p) for m in _MALE_MARKERS)
-            or not any(m in _product_blob(p) for m in _FEMALE_MARKERS)
-        ]
-        # Prefer explicitly male; else drop clearly female/dress items
         explicit = [
             p for p in pool if any(m in _product_blob(p) for m in _MALE_MARKERS)
         ]
@@ -399,7 +434,6 @@ def filter_products_for_query(
         if womens:
             pool = womens
 
-    # Color soft boost / soft filter
     colors = []
     for token in (
         "black",
@@ -418,10 +452,7 @@ def filter_products_for_query(
             colors.append(token)
     constraints["colors"] = colors
     if colors:
-        colored = [
-            p for p in pool if any(c in _product_blob(p) for c in colors)
-        ]
-        # Soft: only narrow if we still have results
+        colored = [p for p in pool if any(c in _product_blob(p) for c in colors)]
         if colored:
             pool = colored
 
@@ -440,7 +471,7 @@ def filter_products_for_query(
         name = _norm(str(p.get("name") or ""))
         model_hit = 0
         if models:
-            model_hit = 0 if any(m in name for m in models) else 1
+            model_hit = 0 if any(_model_matches_name(m, name) for m in models) else 1
         kw_miss = 0
         for k in keywords:
             if not _blob_has_keyword(blob, k) and k not in colors:
@@ -513,7 +544,7 @@ def enforce_recommendation_ids(
             continue
         name = _norm(str(product.get("name") or ""))
         blob = _product_blob(product)
-        if models and not any(m in name for m in models):
+        if models and not any(_model_matches_name(m, name) for m in models):
             continue
         if budget:
             price = _parse_price(product.get("price") or product.get("regular_price"))
@@ -522,9 +553,13 @@ def enforce_recommendation_ids(
         if constraints.get("wants_phone") and not constraints.get("wants_accessory"):
             if _looks_accessory(product):
                 continue
-        if type_keys and not any(_blob_has_keyword(blob, k) for k in type_keys):
+        if type_keys and not models and not any(
+            _blob_has_keyword(blob, k) for k in type_keys
+        ):
             continue
-        if gender == "men" and any(m in blob for m in ("dress", "dresses", "kimono", "blouse", "skirt")):
+        if gender == "men" and any(
+            m in blob for m in ("dress", "dresses", "kimono", "blouse", "skirt")
+        ):
             continue
         out.append({**product, "reason": item.get("reason")})
     return out

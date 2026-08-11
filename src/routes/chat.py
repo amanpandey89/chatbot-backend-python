@@ -62,16 +62,17 @@ def _config_http_detail(exc: Exception) -> Optional[str]:
 
 
 def _public_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
+    """UI-facing filter chips — keep clean, no duplicate search/slug noise."""
+    models = list(filters.get("models") or [])
+    colors = list(filters.get("colors") or [])
+    storage = list(filters.get("storage") or [])
     return {
         "label": filters.get("label") or "",
-        "models": filters.get("models") or [],
-        "colors": filters.get("colors") or [],
-        "storage": filters.get("storage") or [],
+        "models": models,
+        "colors": colors,
+        "storage": storage,
         "budget": filters.get("budget"),
-        "category_slug": filters.get("category_slug") or "",
-        "search_parts": filters.get("search_parts") or [],
         "match_count": filters.get("match_count"),
-        "attr_filters": filters.get("attr_filters") or {},
     }
 
 
@@ -122,7 +123,15 @@ async def chat(body: ChatRequest):
                     matched, _ = filter_products_for_query(
                         products, body.message, limit=3
                     )
-                    sample = matched
+                    label = filters.get("label") or "your request"
+                    sample = [
+                        {
+                            **p,
+                            "reason": p.get("reason")
+                            or f"Matches {label}.",
+                        }
+                        for p in matched
+                    ]
                 return {
                     "success": True,
                     "response": {
