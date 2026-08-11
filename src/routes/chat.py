@@ -99,7 +99,7 @@ async def chat(body: ChatRequest):
 
         # ── PLP navigation (browse / filter intent) ───────────────────────
         if wants_plp_navigation(body.message) and store_url:
-            plp_url, filters = build_plp_url(store_url, body.message, products)
+            plp_url, filters = await build_plp_url(store_url, body.message, products)
             if plp_url:
                 msg = plp_message(filters, navigating=True)
                 add_message(body.session_id, "assistant", msg)
@@ -115,7 +115,7 @@ async def chat(body: ChatRequest):
                         "type": "navigate",
                         "message": msg,
                         "url": plp_url,
-                        "auto_navigate": True,
+                        "auto_navigate": False,
                         "filters": _public_filters(filters),
                         "products": sample,
                     },
@@ -142,7 +142,7 @@ async def chat(body: ChatRequest):
                 products, body.message, limit=40
             )
             if store_url:
-                plp_url, plp_filters = build_plp_url(
+                plp_url, plp_filters = await build_plp_url(
                     store_url, body.message, products
                 )
             if not catalog_for_ai:
