@@ -36,11 +36,11 @@
     <a class="btn secondary" href="/app/{{ store_id }}/train/search">Search testing</a>
     <a class="btn secondary" href="/app/{{ store_id }}/train/logs">Training logs</a>
     {% if tenant.platform == 'shopify' %}
-    <form method="post" action="/app/{{ store_id }}/train/sync/shopify" style="display:inline;" data-busy="Syncing Shopify…" data-busy-sub="Fetching catalog content. This can take a minute.">
+    <form method="post" action="/app/{{ store_id }}/train/sync/shopify" style="display:inline;" data-busy="Starting Shopify sync…" data-busy-sub="Runs in the background so the page will not time out.">
       <button class="btn" type="submit">Sync Shopify catalog</button>
     </form>
     {% else %}
-    <form method="post" action="/app/{{ store_id }}/train/sync/woocommerce" style="display:inline;" data-busy="Syncing WordPress…" data-busy-sub="Fetching products, posts, pages, and custom post types.">
+    <form method="post" action="/app/{{ store_id }}/train/sync/woocommerce" style="display:inline;" data-busy="Starting WordPress sync…" data-busy-sub="Runs in the background so the page will not time out.">
       <button class="btn" type="submit">Sync WordPress (all content)</button>
     </form>
     {% endif %}
