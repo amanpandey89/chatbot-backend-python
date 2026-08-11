@@ -2,12 +2,16 @@
 
 import os
 import re
-from typing import Optional
+from typing import Optional, Tuple
 import httpx
 
 from src.services.woocommerce import strip_html
 
 SHOPIFY_API_VERSION = os.getenv("SHOPIFY_API_VERSION", "2024-10")
+
+
+class ShopifyConfigError(Exception):
+    """Missing Shopify shop domain or access token — safe to show to shoppers."""
 
 
 def shopify_store_id(shop: str) -> str:
@@ -40,6 +44,27 @@ def _headers(access_token: str) -> dict:
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
+
+
+def require_shopify_credentials(tenant: dict) -> Tuple[str, str]:
+    """Return (shop_domain, access_token) or raise ShopifyConfigError."""
+    shop = shopify_store_id(
+        tenant.get("store_url") or tenant.get("shop") or tenant.get("shopify_domain") or ""
+    )
+    token = (tenant.get("access_token") or "").strip()
+    missing = []
+    if not shop:
+        missing.append("Shopify store domain")
+    if not token:
+        missing.append("Shopify access token")
+    if missing:
+        raise ShopifyConfigError(
+            "Store configuration incomplete: "
+            + " and ".join(missing)
+            + " missing. Open Merchant Dashboard → Settings → Store connection "
+            "and reconnect the Shopify app (or paste an Admin API access token)."
+        )
+    return shop, token
 
 
 def normalize_shopify_product(p: dict, shop: str) -> dict:
@@ -105,10 +130,7 @@ def normalize_shopify_order(order: dict) -> dict:
 
 
 async def fetch_shopify_products(tenant: dict) -> list:
-    shop = tenant.get("store_url") or tenant.get("shop")
-    token = tenant.get("access_token")
-    if not shop or not token:
-        raise Exception("Shopify tenant missing store_url or access_token")
+    shop, token = require_shopify_credentials(tenant)
 
     products = []
     url = f"{_admin_base(shop)}/products.json"
@@ -240,9 +262,9 @@ async def lookup_shopify_order_status(tenant: dict, messages: list) -> Optional[
 
 
 async def fetch_shop_currency_symbol(tenant: dict) -> Optional[str]:
-    shop = tenant.get("store_url") or tenant.get("shop")
-    token = tenant.get("access_token")
-    if not shop or not token:
+    try:
+        shop, token = require_shopify_credentials(tenant)
+    except ShopifyConfigError:
         return None
     async with httpx.AsyncClient(timeout=10.0) as client:
         res = await client.get(
@@ -254,3 +276,50 @@ async def fetch_shop_currency_symbol(tenant: dict) -> Optional[str]:
         # money_format like "${{amount}}" or "£{{amount}}"
         symbol = re.sub(r"\{\{.*?\}\}", "", money).strip()
         return symbol or (res.json().get("shop") or {}).get("currency")
+
+
+async def test_shopify_connection(tenant: dict) -> dict:
+    """
+    Verify Admin API access (same credentials chat uses for product cards).
+    Returns {ok, shop_name, product_count, sample_names, error}.
+    """
+    shop, token = require_shopify_credentials(tenant)
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        shop_res = await client.get(
+            f"{_admin_base(shop)}/shop.json", headers=_headers(token)
+        )
+        if shop_res.status_code in (401, 403):
+            return {
+                "ok": False,
+                "error": (
+                    f"Shopify access token rejected (HTTP {shop_res.status_code}). "
+                    "Reconnect the app from Settings → Store connection."
+                ),
+            }
+        if shop_res.status_code >= 400:
+            return {
+                "ok": False,
+                "error": f"Shopify shop.json failed: HTTP {shop_res.status_code} {shop_res.text[:160]}",
+            }
+        shop_data = (shop_res.json().get("shop") or {})
+        shop_name = shop_data.get("name") or shop
+
+        prod_res = await client.get(
+            f"{_admin_base(shop)}/products.json",
+            headers=_headers(token),
+            params={"limit": 3, "status": "active"},
+        )
+        if prod_res.status_code >= 400:
+            return {
+                "ok": False,
+                "error": f"Shopify products failed: HTTP {prod_res.status_code} {prod_res.text[:160]}",
+            }
+        products = prod_res.json().get("products") or []
+        names = [p.get("title") or "" for p in products if isinstance(p, dict)]
+        return {
+            "ok": True,
+            "shop": shop,
+            "shop_name": shop_name,
+            "product_count": len(products),
+            "sample_names": [n for n in names if n][:3],
+        }

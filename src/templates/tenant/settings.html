@@ -13,6 +13,46 @@
 
 <div class="card">
   <h2 style="margin:0 0 10px;font-size:16px;">Store connection</h2>
+
+  {% if platform == 'shopify' %}
+  <p class="muted">Required for product recommendations and order lookup. Chat loads products via the <strong>Shopify Admin API</strong> using the app install token (not WooCommerce keys).</p>
+  <p style="margin:8px 0 12px;">
+    {% if shopify_ready %}<span class="pill">Connected</span>{% else %}<span class="pill" style="background:rgba(255,107,122,.2);color:#ffb3bb;">Incomplete — reconnect Shopify so chat can load products</span>{% endif %}
+  </p>
+  <form method="post" action="/app/{{ store_id }}/settings/store-connection{% if session_token %}?asa_session={{ session_token }}{% endif %}">
+    <label for="store_name">Store name</label>
+    <input id="store_name" name="store_name" type="text" value="{{ tenant.store_name or '' }}" placeholder="My Shopify Store" />
+
+    <label for="store_url">Shopify store domain</label>
+    <input id="store_url" name="store_url" type="text" value="{{ tenant.store_url or store_id }}" placeholder="your-store.myshopify.com" required />
+    <p class="muted" style="margin-top:-6px;">Use the <code>*.myshopify.com</code> domain from Shopify admin.</p>
+
+    <label for="access_token">Admin API access token <span class="muted">(optional)</span></label>
+    <input id="access_token" name="access_token" type="password" autocomplete="off" placeholder="{% if access_token_set %}Leave blank to keep current token{% else %}shpat_… or paste after OAuth{% endif %}" />
+    {% if access_token_set %}
+    <p class="muted" style="margin-top:-6px;">OAuth token is saved. Leave blank to keep it, or paste a new Admin API token to replace it.</p>
+    {% else %}
+    <p class="muted" style="margin-top:-6px;">No token yet — reconnect the app below, or paste a custom Admin API access token.</p>
+    {% endif %}
+
+    <button class="btn" type="submit">Save store connection</button>
+  </form>
+
+  <p style="margin:14px 0 8px;">
+    <a class="btn secondary" href="/shopify/install?shop={{ (tenant.store_url or store_id)|urlencode }}&amp;direct=1" style="margin-bottom:0;">Reconnect Shopify app (OAuth)</a>
+  </p>
+  <p class="muted">Opens Shopify install so this store gets a fresh Admin API token for catalog + orders.</p>
+
+  {% if shopify_ready %}
+  <form method="post" action="/app/{{ store_id }}/settings/test-shopify{% if session_token %}?asa_session={{ session_token }}{% endif %}" style="margin-top:12px;" data-busy="Testing Shopify…" data-busy-sub="Calling Shopify Admin API /shop.json and /products.json with your saved token.">
+    <button class="btn secondary" type="submit">Test Shopify connection</button>
+  </form>
+  <p class="muted" style="margin-top:8px;">
+    This uses the same Admin API chat uses for product cards. If the test fails, reconnect the app or paste a new access token and Save.
+  </p>
+  {% endif %}
+
+  {% else %}
   <p class="muted">Required for product recommendations and order lookup. Chat loads products via the <strong>WooCommerce REST API</strong> (not the WordPress database, and not Train AI sync).</p>
   <p style="margin:8px 0 12px;">
     {% if woo_ready %}<span class="pill">Keys saved</span>{% else %}<span class="pill" style="background:rgba(255,107,122,.2);color:#ffb3bb;">Incomplete — chat recommendations will fail</span>{% endif %}
@@ -42,6 +82,7 @@
     This uses the same product API chat uses. After generating new WooCommerce keys, paste <strong>both</strong> values and click <strong>Save</strong> before testing (blank fields keep the old keys).
   </p>
   {% endif %}
+  {% endif %}
 </div>
 
 <div class="card">
@@ -59,7 +100,13 @@
 
 <div class="card">
   <h2 style="margin:0 0 10px;font-size:16px;">Tenant API key</h2>
-  <p class="muted">Use these headers from WordPress (or any client) to manage training via API:</p>
+  <p class="muted">
+    {% if platform == 'shopify' %}
+    Use these headers from your backend or scripts to manage training via API:
+    {% else %}
+    Use these headers from WordPress (or any client) to manage training via API:
+    {% endif %}
+  </p>
   <p class="mono" style="background:rgba(0,0,0,.25);padding:12px;border-radius:10px;border:1px solid var(--border);">
     X-Store-Id: {{ store_id }}<br/>
     X-Tenant-Key: {{ api_key }}
@@ -72,9 +119,17 @@ POST {{ backend }}/api/tenant/{{ store_id }}/knowledge</pre>
 
 <div class="card">
   <h2 style="margin:0 0 10px;font-size:16px;">Embed</h2>
+  {% if platform == 'shopify' %}
+  <p class="muted">Theme app embed → set Backend URL to:</p>
+  <p class="mono">{{ backend }}</p>
+  <p class="muted">Store ID (Shopify shop domain):</p>
+  <p class="mono">{{ store_id }}</p>
+  <p class="muted" style="margin-top:8px;">Enable <strong>AI Shopping Chat</strong> under Themes → Customize → App embeds.</p>
+  {% else %}
   <p class="muted">Theme app embed Backend URL:</p>
   <p class="mono">{{ backend }}</p>
   <p class="muted">Store ID:</p>
   <p class="mono">{{ store_id }}</p>
+  {% endif %}
 </div>
 {% endblock %}
