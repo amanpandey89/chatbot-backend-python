@@ -101,6 +101,43 @@ def _update_job(job_id: str, **fields):
             conn.commit()
 
 
+def fail_job(job_id: str, error: str, totals: Optional[dict] = None):
+    payload = {
+        "status": "failed",
+        "error": (error or "")[:500],
+        "finished_at": now(),
+        "progress_pct": 100,
+    }
+    if totals is not None:
+        payload["totals"] = totals
+    _update_job(job_id, **payload)
+
+
+def mark_job_fetching(job_id: str):
+    _update_job(
+        job_id,
+        status="running",
+        started_at=now(),
+        progress_pct=0,
+        error="",
+        totals={"phase": "fetching", "total": 0, "indexed": 0, "skipped": 0, "failed": 0},
+    )
+
+
+def has_active_job(tenant_id: str) -> bool:
+    with _lock:
+        with _conn() as conn:
+            row = conn.execute(
+                """
+                SELECT 1 FROM sync_jobs
+                WHERE tenant_id = ? AND status IN ('queued', 'running')
+                LIMIT 1
+                """,
+                (tenant_id,),
+            ).fetchone()
+    return bool(row)
+
+
 async def run_job(tenant_id: str, job_id: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     Process prepared items: each item is

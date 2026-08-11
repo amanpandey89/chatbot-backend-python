@@ -1,10 +1,12 @@
 """Merchant tenant dashboard — chats + Train AI (Shopify + API-key login)."""
 
+import asyncio
+import traceback
 from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from src.services.store import get_tenant, list_sessions_for_store, get_session_detail
@@ -24,7 +26,15 @@ from src.knowledge import SOURCE_TYPES, overview_stats, list_logs, get_rag_setti
 from src.knowledge.ingest import list_sources, delete_source, upsert_and_index_async_prep, index_source_async
 from src.knowledge.exclusions import list_exclusions, add_exclusion, delete_exclusion
 from src.knowledge.retrieve import search as rag_search
-from src.knowledge.sync import create_job, list_jobs, run_job, rebuild_embeddings
+from src.knowledge.sync import (
+    create_job,
+    list_jobs,
+    run_job,
+    rebuild_embeddings,
+    fail_job,
+    mark_job_fetching,
+    has_active_job,
+)
 from src.knowledge.connectors.shopify_sync import collect_shopify_knowledge
 from src.knowledge.connectors.woocommerce_sync import (
     collect_woocommerce_knowledge,
@@ -34,6 +44,70 @@ from src.knowledge.connectors.crawler import crawl_urls
 
 router = APIRouter(prefix="/app", tags=["tenant-dashboard"])
 templates = Jinja2Templates(directory="src/templates")
+
+
+def _fire_and_forget(coro):
+    """Run long sync work outside the HTTP request (avoids Render 502 timeouts)."""
+    task = asyncio.create_task(coro)
+
+    def _done(t: asyncio.Task):
+        try:
+            t.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            traceback.print_exc()
+
+    task.add_done_callback(_done)
+    return task
+
+
+async def _bg_catalog_sync(store_id: str, job_id: str, tenant: dict, *, platform: str):
+    try:
+        mark_job_fetching(job_id)
+        if platform == "shopify":
+            items = await collect_shopify_knowledge(tenant)
+            empty_msg = "Shopify sync found 0 items. Check store URL and access token."
+        else:
+            items = await collect_woocommerce_knowledge(tenant)
+            empty_msg = (
+                "WordPress sync found 0 items. Check store URL and WooCommerce API keys."
+            )
+        if not items:
+            fail_job(
+                job_id,
+                empty_msg,
+                totals={"total": 0, "indexed": 0, "skipped": 0, "failed": 0},
+            )
+            return
+        await run_job(store_id, job_id, items)
+    except Exception as e:
+        fail_job(job_id, str(e))
+
+
+async def _bg_crawl_sync(store_id: str, job_id: str, seeds: list):
+    try:
+        mark_job_fetching(job_id)
+        items = await crawl_urls(seeds)
+        if not items:
+            fail_job(
+                job_id,
+                "Crawl found 0 pages. Check seed URLs.",
+                totals={"total": 0, "indexed": 0, "skipped": 0, "failed": 0},
+            )
+            return
+        await run_job(store_id, job_id, items)
+    except Exception as e:
+        fail_job(job_id, str(e))
+
+
+async def _bg_rebuild(store_id: str):
+    """rebuild_embeddings() creates and tracks its own job row."""
+    try:
+        await rebuild_embeddings(store_id)
+    except Exception as e:
+        job = create_job(store_id, "rebuild_embeddings")
+        fail_job(job["id"], str(e))
 
 
 def _fmt(ts: Optional[float]) -> str:
@@ -509,13 +583,16 @@ def app_train_sync(request: Request, store_id: str):
     safe_tenant["openai_error"] = openai_err
     flash = request.cookies.get("asa_tenant_flash")
     flash_type = request.cookies.get("asa_tenant_flash_type") or "ok"
+    jobs = list_jobs(store_id)
+    sync_active = has_active_job(store_id)
     resp = _render(
         request,
         "tenant/train_sync.html",
         {
             "tenant": safe_tenant,
             "store_id": store_id,
-            "jobs": list_jobs(store_id),
+            "jobs": jobs,
+            "sync_active": sync_active,
             "rag_settings": get_rag_settings(store_id),
             "flash": flash,
             "flash_type": flash_type,
@@ -527,6 +604,21 @@ def app_train_sync(request: Request, store_id: str):
         resp.delete_cookie("asa_tenant_flash")
         resp.delete_cookie("asa_tenant_flash_type")
     return resp
+
+
+@router.get("/{store_id}/train/sync/status")
+def app_train_sync_status(request: Request, store_id: str):
+    denied = _require(request, store_id)
+    if denied:
+        return denied
+    jobs = list_jobs(store_id, limit=10)
+    return JSONResponse(
+        {
+            "success": True,
+            "active": has_active_job(store_id),
+            "jobs": jobs,
+        }
+    )
 
 
 @router.post("/{store_id}/train/sync/shopify")
@@ -542,13 +634,22 @@ async def app_train_sync_shopify(request: Request, store_id: str):
             f"Cannot sync: {err}",
             error=True,
         )
+    if has_active_job(store_id):
+        return _flash_redirect(
+            store_id,
+            "train/sync",
+            "A sync is already running. Wait for it to finish.",
+            error=True,
+        )
     tenant = get_tenant(store_id, include_inactive=False, include_secrets=True) or {}
     tenant = {**tenant, "store_id": store_id}
     job = create_job(store_id, "shopify_full_sync")
-    items = await collect_shopify_knowledge(tenant)
-    result = await run_job(store_id, job["id"], items)
-    msg, is_err = _job_flash(result, "Shopify sync")
-    return _flash_redirect(store_id, "train/sync", msg, error=is_err)
+    _fire_and_forget(_bg_catalog_sync(store_id, job["id"], tenant, platform="shopify"))
+    return _flash_redirect(
+        store_id,
+        "train/sync",
+        "Shopify sync started in the background. This page will refresh until it finishes.",
+    )
 
 
 @router.post("/{store_id}/train/sync/woocommerce")
@@ -562,7 +663,7 @@ async def app_train_sync_woocommerce(request: Request, store_id: str):
         return _flash_redirect(
             store_id,
             "train/sync",
-            "WordPress sync needs store URL + consumer key/secret on this store (Admin -> Stores).",
+            "WordPress sync needs store URL + consumer key/secret under Settings → Store connection.",
             error=True,
         )
     ok, err = _openai_ready(store_id)
@@ -573,26 +674,22 @@ async def app_train_sync_woocommerce(request: Request, store_id: str):
             f"Cannot index content: {err}",
             error=True,
         )
+    if has_active_job(store_id):
+        return _flash_redirect(
+            store_id,
+            "train/sync",
+            "A sync is already running. Wait for it to finish.",
+            error=True,
+        )
     job = create_job(store_id, "wordpress_full_sync")
-    try:
-        items = await collect_woocommerce_knowledge(tenant)
-    except Exception as e:
-        return _flash_redirect(
-            store_id,
-            "train/sync",
-            f"WordPress sync failed: {e}",
-            error=True,
-        )
-    if not items:
-        return _flash_redirect(
-            store_id,
-            "train/sync",
-            "WordPress sync found 0 items. Check store URL and WooCommerce API keys.",
-            error=True,
-        )
-    result = await run_job(store_id, job["id"], items)
-    msg, is_err = _job_flash(result, "WordPress sync")
-    return _flash_redirect(store_id, "train/sync", msg, error=is_err)
+    _fire_and_forget(
+        _bg_catalog_sync(store_id, job["id"], tenant, platform="woocommerce")
+    )
+    return _flash_redirect(
+        store_id,
+        "train/sync",
+        "WordPress sync started in the background. This page will refresh until it finishes.",
+    )
 
 
 @router.api_route("/{store_id}/train/sync/rebuild", methods=["GET", "POST"])
@@ -624,17 +721,19 @@ async def app_train_sync_rebuild(request: Request, store_id: str):
             f"Cannot rebuild: {err}",
             error=True,
         )
-    try:
-        result = await rebuild_embeddings(store_id)
-    except Exception as e:
+    if has_active_job(store_id):
         return _flash_redirect(
             store_id,
             "train/sync",
-            f"Rebuild failed: {e}",
+            "A sync is already running. Wait for it to finish.",
             error=True,
         )
-    msg, is_err = _job_flash(result, "Rebuild")
-    return _flash_redirect(store_id, "train/sync", msg, error=is_err)
+    _fire_and_forget(_bg_rebuild(store_id))
+    return _flash_redirect(
+        store_id,
+        "train/sync",
+        "Rebuild started in the background. This page will refresh until it finishes.",
+    )
 
 
 @router.post("/{store_id}/train/sync/crawl")
@@ -652,13 +751,22 @@ async def app_train_sync_crawl(
             f"Cannot crawl/index: {err}",
             error=True,
         )
+    if has_active_job(store_id):
+        return _flash_redirect(
+            store_id,
+            "train/sync",
+            "A sync is already running. Wait for it to finish.",
+            error=True,
+        )
     update_rag_settings(store_id, crawler_seed_urls=seed_urls)
     seeds = [u.strip() for u in seed_urls.splitlines() if u.strip()]
     job = create_job(store_id, "website_crawl")
-    items = await crawl_urls(seeds)
-    result = await run_job(store_id, job["id"], items)
-    msg, is_err = _job_flash(result, "Crawl")
-    return _flash_redirect(store_id, "train/sync", msg, error=is_err)
+    _fire_and_forget(_bg_crawl_sync(store_id, job["id"], seeds))
+    return _flash_redirect(
+        store_id,
+        "train/sync",
+        "Crawl started in the background. This page will refresh until it finishes.",
+    )
 
 
 @router.get("/{store_id}/train/search", response_class=HTMLResponse)
