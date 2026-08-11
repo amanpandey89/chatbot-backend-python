@@ -15,6 +15,12 @@ class WooConfigError(Exception):
     pass
 
 
+class WooAuthError(WooConfigError):
+    """WooCommerce rejected API credentials (401/403)."""
+
+    pass
+
+
 def require_woo_credentials(tenant: dict) -> tuple:
     """Return (store_url, consumer_key, consumer_secret) or raise WooConfigError."""
     store_url = (tenant.get("store_url") or "").strip().rstrip("/")
@@ -34,6 +40,71 @@ def require_woo_credentials(tenant: dict) -> tuple:
             + ". Open Merchant Dashboard → Settings → Store connection and save them."
         )
     return store_url, consumer_key, consumer_secret
+
+
+def woo_basic_auth(consumer_key: str, consumer_secret: str) -> httpx.Auth:
+    return httpx.BasicAuth(consumer_key, consumer_secret)
+
+
+def raise_for_woo_response(response: httpx.Response, *, context: str = "WooCommerce"):
+    if response.status_code in (401, 403):
+        raise WooAuthError(
+            "WooCommerce API keys were rejected (cannot list products). "
+            "On WP Engine, create a Read/Write REST API key for an Administrator, "
+            "save key+secret under Merchant Dashboard → Settings → Store connection, "
+            "and use https://your-site.wpenginepowered.com with no path."
+        )
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError:
+        raise Exception(
+            f"{context} error {response.status_code}: {response.text[:200]}"
+        )
+
+
+async def woo_get(
+    url: str,
+    *,
+    consumer_key: str,
+    consumer_secret: str,
+    params: Optional[dict] = None,
+    headers: Optional[dict] = None,
+    timeout: float = 15.0,
+) -> httpx.Response:
+    """
+    GET WooCommerce REST with WP Engine-compatible auth.
+
+    WP Engine often strips the Authorization header, so query-string keys are
+    tried first; Basic Auth is the fallback for hosts that block query auth.
+    """
+    params = dict(params or {})
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; ChatbotBot/1.0)",
+        "Accept": "application/json",
+        **(headers or {}),
+    }
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        response = await client.get(
+            url,
+            params={
+                **params,
+                "consumer_key": consumer_key,
+                "consumer_secret": consumer_secret,
+            },
+            headers=headers,
+            timeout=timeout,
+        )
+        if response.status_code not in (401, 403):
+            return response
+
+        print("── WooCommerce query-string auth failed; retrying Basic Auth")
+        return await client.get(
+            url,
+            params=params,
+            headers=headers,
+            auth=woo_basic_auth(consumer_key, consumer_secret),
+            timeout=timeout,
+        )
 
 
 def strip_html(html: str) -> str:
@@ -70,51 +141,39 @@ def normalize_product(p: dict) -> dict:
 async def _fetch_products_uncached(tenant: dict) -> list:
     store_url, consumer_key, consumer_secret = require_woo_credentials(tenant)
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (compatible; ChatbotBot/1.0)",
-        "Accept": "application/json",
-    }
-
     raw_products = []
+    page = 1
+    while True:
+        response = await woo_get(
+            f"{store_url}/wp-json/wc/v3/products",
+            consumer_key=consumer_key,
+            consumer_secret=consumer_secret,
+            params={
+                "per_page": 100,
+                "page": page,
+                "status": "publish",
+                "stock_status": "instock",
+            },
+            timeout=15.0,
+        )
 
-    async with httpx.AsyncClient(follow_redirects=True) as client:
-        page = 1
-        while True:
-            response = await client.get(
-                f"{store_url}/wp-json/wc/v3/products",
-                params={
-                    "consumer_key": consumer_key,
-                    "consumer_secret": consumer_secret,
-                    "per_page": 100,
-                    "page": page,
-                    "status": "publish",
-                    "stock_status": "instock",
-                },
-                headers=headers,
-                timeout=15.0,
-            )
+        print(f"── WooCommerce status: {response.status_code} (Page {page})")
+        print(f"── Final URL: {response.url}")
 
-            print(f"── WooCommerce status: {response.status_code} (Page {page})")
-            print(f"── Final URL: {response.url}")
+        if response.status_code >= 400:
+            print(f"── Error body: {response.text[:500]}")
+        raise_for_woo_response(response)
 
-            try:
-                response.raise_for_status()
-            except httpx.HTTPStatusError as e:
-                print(f"── Error body: {response.text[:500]}")
-                raise Exception(
-                    f"WooCommerce error {response.status_code}: {response.text[:200]}"
-                )
+        page_products = response.json()
+        if not page_products:
+            break
 
-            page_products = response.json()
-            if not page_products:
-                break
+        raw_products.extend(page_products)
 
-            raw_products.extend(page_products)
+        if len(page_products) < 100:
+            break
 
-            if len(page_products) < 100:
-                break
-
-            page += 1
+        page += 1
 
     all_products = [normalize_product(p) for p in raw_products]
     print(f"── Total products fetched: {len(all_products)}")
@@ -200,45 +259,36 @@ async def fetch_order(tenant: dict, order_number: str) -> Optional[dict]:
     """Fetch a WooCommerce order by ID / order number."""
     store_url, consumer_key, consumer_secret = require_woo_credentials(tenant)
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (compatible; ChatbotBot/1.0)",
-        "Accept": "application/json",
-    }
-    auth_params = {
-        "consumer_key": consumer_key,
-        "consumer_secret": consumer_secret,
-    }
+    response = await woo_get(
+        f"{store_url}/wp-json/wc/v3/orders/{order_number}",
+        consumer_key=consumer_key,
+        consumer_secret=consumer_secret,
+        timeout=15.0,
+    )
 
-    async with httpx.AsyncClient(follow_redirects=True) as client:
-        # Prefer direct ID lookup (order #119 is usually id 119)
-        response = await client.get(
-            f"{store_url}/wp-json/wc/v3/orders/{order_number}",
-            params=auth_params,
-            headers=headers,
-            timeout=15.0,
-        )
+    if response.status_code == 200:
+        return normalize_order(response.json())
 
-        if response.status_code == 200:
-            return normalize_order(response.json())
+    response = await woo_get(
+        f"{store_url}/wp-json/wc/v3/orders",
+        consumer_key=consumer_key,
+        consumer_secret=consumer_secret,
+        params={"search": order_number, "per_page": 10},
+        timeout=15.0,
+    )
+    if response.status_code in (401, 403):
+        raise_for_woo_response(response, context="WooCommerce orders")
+    response.raise_for_status()
+    orders = response.json() or []
 
-        # Fallback: search by order number string
-        response = await client.get(
-            f"{store_url}/wp-json/wc/v3/orders",
-            params={**auth_params, "search": order_number, "per_page": 10},
-            headers=headers,
-            timeout=15.0,
-        )
-        response.raise_for_status()
-        orders = response.json() or []
+    for order in orders:
+        number = str(order.get("number") or "")
+        oid = str(order.get("id") or "")
+        if number == str(order_number) or oid == str(order_number):
+            return normalize_order(order)
 
-        for order in orders:
-            number = str(order.get("number") or "")
-            oid = str(order.get("id") or "")
-            if number == str(order_number) or oid == str(order_number):
-                return normalize_order(order)
-
-        if orders:
-            return normalize_order(orders[0])
+    if orders:
+        return normalize_order(orders[0])
 
     return None
 
