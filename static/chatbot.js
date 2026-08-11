@@ -934,16 +934,18 @@
       low.indexOf('consumer key') !== -1 ||
       low.indexOf('consumer_secret') !== -1 ||
       low.indexOf('consumer_key') !== -1 ||
+      low.indexOf('access token') !== -1 ||
       low.indexOf('store url') !== -1 ||
       low.indexOf('store connection') !== -1 ||
       low.indexOf('api keys were rejected') !== -1 ||
       low.indexOf('cannot list') !== -1 ||
       low.indexOf('woocommerce_rest_cannot_view') !== -1 ||
+      low.indexOf('reconnect the shopify') !== -1 ||
       low.indexOf('401') !== -1
     ) {
       return (
         detail ||
-        'Store configuration is incomplete. Add your store URL and WooCommerce API keys in Merchant Dashboard → Settings → Store connection.'
+        'Store configuration is incomplete. Open Merchant Dashboard → Settings → Store connection and finish setup for your platform (Shopify OAuth / WooCommerce keys).'
       );
     }
     if (res && res.status === 404) {

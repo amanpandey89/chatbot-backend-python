@@ -844,16 +844,27 @@ def app_settings(request: Request, store_id: str):
     if denied:
         return denied
     from src.services.tenant_auth import tenant_has_openai_key
+    from src.services.shopify_service import shopify_store_id
 
     tenant = get_tenant(store_id, include_secrets=True) or {}
     api_key = ensure_tenant_api_key(store_id)
     backend = str(request.base_url).rstrip("/")
     flash = request.cookies.get("asa_tenant_flash")
     flash_type = request.cookies.get("asa_tenant_flash_type") or "ok"
+    platform = (tenant.get("platform") or "woocommerce").lower()
+    if platform == "wordpress":
+        platform = "woocommerce"
+
     consumer_key_set = bool((tenant.get("consumer_key") or "").strip())
     consumer_secret_set = bool((tenant.get("consumer_secret") or "").strip())
     store_url_set = bool((tenant.get("store_url") or "").strip())
+    access_token_set = bool((tenant.get("access_token") or "").strip())
     woo_ready = store_url_set and consumer_key_set and consumer_secret_set
+    shop_domain = shopify_store_id(
+        tenant.get("store_url") or tenant.get("shop") or store_id
+    )
+    shopify_ready = bool(shop_domain and access_token_set)
+
     # Do not send raw secrets to the browser
     safe_tenant = {
         **tenant,
@@ -862,6 +873,8 @@ def app_settings(request: Request, store_id: str):
         "tenant_api_key": "",
         "openai_api_key": "",
         "access_token": "",
+        "platform": platform,
+        "store_url": tenant.get("store_url") or shop_domain or "",
     }
     resp = _render(
         request,
@@ -871,10 +884,13 @@ def app_settings(request: Request, store_id: str):
             "store_id": store_id,
             "api_key": api_key,
             "backend": backend,
+            "platform": platform,
             "openai_key_set": tenant_has_openai_key(store_id),
             "consumer_key_set": consumer_key_set,
             "consumer_secret_set": consumer_secret_set,
+            "access_token_set": access_token_set,
             "woo_ready": woo_ready,
+            "shopify_ready": shopify_ready,
             "flash": flash,
             "flash_type": flash_type,
             "error": None,
@@ -896,11 +912,13 @@ def app_settings_store_connection(
     store_name: str = Form(""),
     consumer_key: str = Form(""),
     consumer_secret: str = Form(""),
+    access_token: str = Form(""),
 ):
     denied = _require(request, store_id)
     if denied:
         return denied
     from src.services.store import register_tenant
+    from src.services.shopify_service import shopify_store_id
 
     tenant = get_tenant(store_id, include_inactive=True, include_secrets=True)
     if not tenant:
@@ -908,49 +926,79 @@ def app_settings_store_connection(
             store_id, "settings", "Store not found.", request=request, error=True
         )
 
-    url = (store_url or "").strip().rstrip("/")
-    if not url.startswith("http"):
-        return _flash_redirect(
-            store_id,
-            "settings",
-            "Store URL must be an absolute http(s) URL.",
-            request=request,
-            error=True,
-        )
+    platform = (tenant.get("platform") or "woocommerce").lower()
+    if platform == "wordpress":
+        platform = "woocommerce"
 
-    key = (consumer_key or "").strip()
-    secret = (consumer_secret or "").strip()
     name = (store_name or "").strip() or tenant.get("store_name") or store_id
-
-    if not key and not (tenant.get("consumer_key") or "").strip():
-        return _flash_redirect(
-            store_id,
-            "settings",
-            "Enter a WooCommerce consumer key.",
-            request=request,
-            error=True,
-        )
-    if not secret and not (tenant.get("consumer_secret") or "").strip():
-        return _flash_redirect(
-            store_id,
-            "settings",
-            "Enter a WooCommerce consumer secret.",
-            request=request,
-            error=True,
-        )
-
     payload = {
         k: v
         for k, v in tenant.items()
         if k not in ("store_id", "active", "created_at", "updated_at")
     }
-    payload["platform"] = tenant.get("platform") or "woocommerce"
-    payload["store_url"] = url
+    payload["platform"] = platform
     payload["store_name"] = name
-    if key:
-        payload["consumer_key"] = key
-    if secret:
-        payload["consumer_secret"] = secret
+
+    if platform == "shopify":
+        shop = shopify_store_id(store_url or tenant.get("store_url") or store_id)
+        if not shop:
+            return _flash_redirect(
+                store_id,
+                "settings",
+                "Enter a valid Shopify domain (e.g. your-store.myshopify.com).",
+                request=request,
+                error=True,
+            )
+        token = (access_token or "").strip()
+        if not token and not (tenant.get("access_token") or "").strip():
+            return _flash_redirect(
+                store_id,
+                "settings",
+                "No Shopify access token yet. Click Reconnect Shopify app, or paste an Admin API access token.",
+                request=request,
+                error=True,
+            )
+        payload["store_url"] = shop
+        payload["shop"] = shop
+        payload["shopify_domain"] = shop
+        if token:
+            payload["access_token"] = token
+        # Clear accidental Woo fields on Shopify tenants
+        payload.pop("consumer_key", None)
+        payload.pop("consumer_secret", None)
+    else:
+        url = (store_url or "").strip().rstrip("/")
+        if not url.startswith("http"):
+            return _flash_redirect(
+                store_id,
+                "settings",
+                "Store URL must be an absolute http(s) URL.",
+                request=request,
+                error=True,
+            )
+        key = (consumer_key or "").strip()
+        secret = (consumer_secret or "").strip()
+        if not key and not (tenant.get("consumer_key") or "").strip():
+            return _flash_redirect(
+                store_id,
+                "settings",
+                "Enter a WooCommerce consumer key.",
+                request=request,
+                error=True,
+            )
+        if not secret and not (tenant.get("consumer_secret") or "").strip():
+            return _flash_redirect(
+                store_id,
+                "settings",
+                "Enter a WooCommerce consumer secret.",
+                request=request,
+                error=True,
+            )
+        payload["store_url"] = url
+        if key:
+            payload["consumer_key"] = key
+        if secret:
+            payload["consumer_secret"] = secret
 
     register_tenant(store_id, payload, active=bool(tenant.get("active", True)))
     return _flash_redirect(
@@ -965,6 +1013,14 @@ async def app_settings_test_woocommerce(request: Request, store_id: str):
     if denied:
         return denied
     tenant = get_tenant(store_id, include_inactive=False, include_secrets=True) or {}
+    if (tenant.get("platform") or "").lower() == "shopify":
+        return _flash_redirect(
+            store_id,
+            "settings",
+            "This store is Shopify — use Test Shopify connection instead.",
+            request=request,
+            error=True,
+        )
     tenant = {**tenant, "store_id": store_id}
     try:
         from src.services.woocommerce import woo_get, require_woo_credentials
@@ -1013,6 +1069,53 @@ async def app_settings_test_woocommerce(request: Request, store_id: str):
             store_id,
             "settings",
             f"WooCommerce test failed: {e}",
+            request=request,
+            error=True,
+        )
+
+
+@router.post("/{store_id}/settings/test-shopify")
+async def app_settings_test_shopify(request: Request, store_id: str):
+    """Verify live Shopify Admin API access (same path chat uses for product cards)."""
+    denied = _require(request, store_id)
+    if denied:
+        return denied
+    tenant = get_tenant(store_id, include_inactive=False, include_secrets=True) or {}
+    platform = (tenant.get("platform") or "").lower()
+    if platform and platform != "shopify":
+        return _flash_redirect(
+            store_id,
+            "settings",
+            "This store is not Shopify — use Test WooCommerce connection instead.",
+            request=request,
+            error=True,
+        )
+    tenant = {**tenant, "store_id": store_id, "platform": "shopify"}
+    try:
+        from src.services.shopify_service import test_shopify_connection
+
+        result = await test_shopify_connection(tenant)
+        if not result.get("ok"):
+            return _flash_redirect(
+                store_id,
+                "settings",
+                result.get("error") or "Shopify test failed.",
+                request=request,
+                error=True,
+            )
+        names = ", ".join(result.get("sample_names") or [])
+        msg = (
+            f"Shopify OK — {result.get('shop_name')} "
+            f"({result.get('shop')}), loaded {result.get('product_count', 0)} sample product(s)"
+        )
+        if names:
+            msg += f": {names}"
+        return _flash_redirect(store_id, "settings", msg, request=request)
+    except Exception as e:
+        return _flash_redirect(
+            store_id,
+            "settings",
+            f"Shopify test failed: {e}",
             request=request,
             error=True,
         )

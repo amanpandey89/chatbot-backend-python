@@ -7,6 +7,7 @@ from src.services.catalog import fetch_products, lookup_order_status
 from src.services.openai_service import get_recommendation
 from src.services.user_context import merge_user_context
 from src.services.woocommerce import WooConfigError, WooAuthError
+from src.services.shopify_service import ShopifyConfigError
 from src.services.catalog_filter import (
     filter_products_for_query,
     enforce_recommendation_ids,
@@ -30,10 +31,15 @@ class ChatRequest(BaseModel):
 
 
 def _config_http_detail(exc: Exception) -> Optional[str]:
-    if isinstance(exc, WooConfigError):
+    if isinstance(exc, (WooConfigError, ShopifyConfigError)):
         return str(exc)
     msg = str(exc)
     low = msg.lower()
+    if "shopify" in low and ("access token" in low or "401" in low or "403" in low):
+        return (
+            "Shopify access was rejected. Open Merchant Dashboard → Settings → "
+            "Store connection and reconnect the Shopify app."
+        )
     if "401" in low or "cannot_view" in low or "cannot list" in low:
         return (
             "WooCommerce API keys were rejected (cannot list products). "
@@ -46,6 +52,11 @@ def _config_http_detail(exc: Exception) -> Optional[str]:
         return (
             "Store configuration incomplete: WooCommerce API keys or store URL are missing. "
             "Open Merchant Dashboard → Settings → Store connection and save them."
+        )
+    if raw in ("access_token", "shop"):
+        return (
+            "Store configuration incomplete: Shopify access token is missing. "
+            "Open Merchant Dashboard → Settings → Store connection and reconnect the app."
         )
     return None
 
@@ -90,12 +101,13 @@ async def chat(body: ChatRequest):
         order_lookup = None
         try:
             products = await fetch_products(tenant)
-        except WooConfigError as e:
+        except (WooConfigError, ShopifyConfigError) as e:
             catalog_error = str(e)
             print(f"── Chat catalog unavailable: {e}")
 
         wants_products = _looks_like_product_request(body.message)
         store_url = (tenant.get("store_url") or "").rstrip("/")
+        platform = (tenant.get("platform") or "woocommerce").lower()
 
         # ── PLP navigation (browse / filter intent) ───────────────────────
         if wants_plp_navigation(body.message) and store_url:
@@ -122,11 +134,20 @@ async def chat(body: ChatRequest):
                 }
 
         if wants_products and not products:
-            msg = catalog_error or (
-                "I could not load products from your WooCommerce store yet. "
-                "Open Merchant Dashboard → Settings → Store connection, save a working "
-                "Consumer Key/Secret for this store URL, then try again."
-            )
+            if catalog_error:
+                msg = catalog_error
+            elif platform == "shopify":
+                msg = (
+                    "I could not load products from your Shopify store yet. "
+                    "Open Merchant Dashboard → Settings → Store connection, "
+                    "reconnect the Shopify app (or paste an Admin API token), then try again."
+                )
+            else:
+                msg = (
+                    "I could not load products from your WooCommerce store yet. "
+                    "Open Merchant Dashboard → Settings → Store connection, save a working "
+                    "Consumer Key/Secret for this store URL, then try again."
+                )
             add_message(body.session_id, "assistant", msg)
             return {
                 "success": True,
