@@ -1,0 +1,9 @@
+{
+  "example-store": {
+    "platform": "woocommerce",
+    "store_name": "Example Store",
+    "store_url": "https://your-shop.example.com",
+    "consumer_key": "ck_xxx",
+    "consumer_secret": "cs_xxx"
+  }
+}

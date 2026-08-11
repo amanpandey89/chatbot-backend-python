@@ -5,3 +5,4 @@ __pycache__/
 wordpress-plugin/
 data/
 *.db
+tenants.json
