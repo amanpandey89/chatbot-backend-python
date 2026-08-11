@@ -12,6 +12,11 @@ from src.services.catalog_filter import (
     enforce_recommendation_ids,
     parse_query_constraints,
 )
+from src.services.plp_nav import (
+    wants_plp_navigation,
+    build_plp_url,
+    plp_message,
+)
 
 
 router = APIRouter()
@@ -45,6 +50,20 @@ def _config_http_detail(exc: Exception) -> Optional[str]:
     return None
 
 
+def _public_filters(filters: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "label": filters.get("label") or "",
+        "models": filters.get("models") or [],
+        "colors": filters.get("colors") or [],
+        "storage": filters.get("storage") or [],
+        "budget": filters.get("budget"),
+        "category_slug": filters.get("category_slug") or "",
+        "search_parts": filters.get("search_parts") or [],
+        "match_count": filters.get("match_count"),
+        "attr_filters": filters.get("attr_filters") or {},
+    }
+
+
 @router.post("/chat")
 async def chat(body: ChatRequest):
 
@@ -75,16 +94,38 @@ async def chat(body: ChatRequest):
             catalog_error = str(e)
             print(f"── Chat catalog unavailable: {e}")
 
-        # Product recommendations need the live WooCommerce catalog (REST API).
-        # Sync/RAG is separate and is not used for product cards.
         wants_products = _looks_like_product_request(body.message)
+        store_url = (tenant.get("store_url") or "").rstrip("/")
+
+        # ── PLP navigation (browse / filter intent) ───────────────────────
+        if wants_plp_navigation(body.message) and store_url:
+            plp_url, filters = build_plp_url(store_url, body.message, products)
+            if plp_url:
+                msg = plp_message(filters, navigating=True)
+                add_message(body.session_id, "assistant", msg)
+                sample = []
+                if products:
+                    matched, _ = filter_products_for_query(
+                        products, body.message, limit=3
+                    )
+                    sample = matched
+                return {
+                    "success": True,
+                    "response": {
+                        "type": "navigate",
+                        "message": msg,
+                        "url": plp_url,
+                        "auto_navigate": True,
+                        "filters": _public_filters(filters),
+                        "products": sample,
+                    },
+                }
+
         if wants_products and not products:
             msg = catalog_error or (
                 "I could not load products from your WooCommerce store yet. "
                 "Open Merchant Dashboard → Settings → Store connection, save a working "
-                "Consumer Key/Secret for this store URL, then try again. "
-                "(Chat reads products via the WooCommerce REST API — not the WordPress database, "
-                "and not Train AI sync.)"
+                "Consumer Key/Secret for this store URL, then try again."
             )
             add_message(body.session_id, "assistant", msg)
             return {
@@ -94,10 +135,16 @@ async def chat(body: ChatRequest):
 
         constraints = {}
         catalog_for_ai = products
+        plp_url = ""
+        plp_filters: Dict[str, Any] = {}
         if products and wants_products:
             catalog_for_ai, constraints = filter_products_for_query(
                 products, body.message, limit=40
             )
+            if store_url:
+                plp_url, plp_filters = build_plp_url(
+                    store_url, body.message, products
+                )
             if not catalog_for_ai:
                 constraints = parse_query_constraints(body.message)
                 models = constraints.get("models") or []
@@ -113,6 +160,19 @@ async def chat(body: ChatRequest):
                     "Try another model, a wider budget, or ask me to show similar phones."
                 )
                 add_message(body.session_id, "assistant", msg)
+                # Still offer PLP browse if we can build a URL
+                if plp_url:
+                    return {
+                        "success": True,
+                        "response": {
+                            "type": "navigate",
+                            "message": msg + " You can still browse the shop filters.",
+                            "url": plp_url,
+                            "auto_navigate": False,
+                            "filters": _public_filters(plp_filters),
+                            "products": [],
+                        },
+                    }
                 return {
                     "success": True,
                     "response": {"type": "question", "message": msg},
@@ -151,7 +211,6 @@ async def chat(body: ChatRequest):
                     parsed.get("products") or [],
                     constraints,
                 )
-                # If hard filter removed everything, fall back to filtered catalog top matches
                 if not enriched and catalog_for_ai:
                     enriched = [
                         {
@@ -162,15 +221,19 @@ async def chat(body: ChatRequest):
                     ]
 
                 if enriched:
-                    return {
-                        "success": True,
-                        "response": {
-                            "type": "recommendations",
-                            "message": parsed.get("message")
-                            or "Based on your needs, here are my top picks:",
-                            "products": enriched,
-                        },
+                    resp = {
+                        "type": "recommendations",
+                        "message": parsed.get("message")
+                        or "Based on your needs, here are my top picks:",
+                        "products": enriched,
                     }
+                    if plp_url:
+                        resp["plp_url"] = plp_url
+                        resp["filters"] = _public_filters(plp_filters)
+                        resp["plp_message"] = plp_message(
+                            plp_filters, navigating=False
+                        )
+                    return {"success": True, "response": resp}
                 fallback = (
                     catalog_error
                     or "I could not match products from the live catalog. Please try again."
@@ -224,5 +287,13 @@ def _looks_like_product_request(message: str) -> bool:
         "suggest",
         "looking for",
         "show me",
+        "show",
+        "browse",
+        "filter",
+        "visa",
+        "filtrera",
+        "gb",
+        "black",
+        "white",
     )
     return any(k in text for k in keys)
