@@ -5,7 +5,21 @@ import sqlite3
 import threading
 import time
 
-TENANTS_FILE = "tenants.json"
+TENANTS_FILE = os.getenv("TENANTS_FILE", "tenants.json")
+# Only re-import JSON seed when explicitly enabled (avoids resurrecting old stores on each deploy).
+TENANTS_MIGRATE = os.getenv("TENANTS_MIGRATE", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+# Optional JSON mirror of tenants (off by default — ephemeral disks + git commits caused data loss).
+TENANTS_BACKUP = os.getenv("TENANTS_BACKUP", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 APP_DB = os.getenv("SESSIONS_DB", os.getenv("APP_DB", "data/app.db"))
 
 tenants: dict = {}
@@ -135,7 +149,16 @@ def _row_to_tenant(row, include_secrets: bool = True) -> dict:
 
 
 def migrate_tenants_from_json():
-    """One-time import of legacy tenants.json into SQLite."""
+    """
+    Optional one-time import of tenants.json into SQLite.
+
+    Disabled by default. On Render (and similar hosts) the SQLite file lives on an
+    ephemeral disk and is wiped on every deploy; if we always import a committed
+    tenants.json, old stores reappear and new stores disappear.
+    Set TENANTS_MIGRATE=1 only when you intentionally want to seed from JSON.
+    """
+    if not TENANTS_MIGRATE:
+        return 0
     if not os.path.exists(TENANTS_FILE):
         return 0
     try:
@@ -155,8 +178,44 @@ def migrate_tenants_from_json():
         register_tenant(store_id, payload, active=True)
         imported += 1
     if imported:
-        print(f"✓ Migrated {imported} tenants from tenants.json → SQLite")
+        print(f"✓ Migrated {imported} tenants from {TENANTS_FILE} → SQLite")
     return imported
+
+
+def _maybe_backup_tenants_json():
+    if not TENANTS_BACKUP:
+        return
+    try:
+        all_data = get_all_tenants(include_inactive=True, include_secrets=True)
+        export = {}
+        for sid, tenant in all_data.items():
+            export[sid] = {
+                k: v
+                for k, v in tenant.items()
+                if k
+                not in (
+                    "store_id",
+                    "created_at",
+                    "updated_at",
+                    "active",
+                )
+                or k in ("store_name", "store_url", "platform")
+            }
+            export[sid]["store_name"] = tenant.get("store_name")
+            export[sid]["store_url"] = tenant.get("store_url")
+            export[sid]["platform"] = tenant.get("platform")
+            for key in (
+                "consumer_key",
+                "consumer_secret",
+                "access_token",
+                "currency_symbol",
+            ):
+                if tenant.get(key) is not None:
+                    export[sid][key] = tenant.get(key)
+        with open(TENANTS_FILE, "w") as f:
+            json.dump(export, f, indent=4)
+    except Exception as e:
+        print(f"Warning: could not sync {TENANTS_FILE}: {e}")
 
 
 def register_tenant(store_id: str, data: dict, active: bool = True):
@@ -203,39 +262,7 @@ def register_tenant(store_id: str, data: dict, active: bool = True):
             )
             conn.commit()
 
-    # Keep tenants.json in sync as a backup (non-blocking best effort)
-    try:
-        all_data = get_all_tenants(include_inactive=True, include_secrets=True)
-        export = {}
-        for sid, tenant in all_data.items():
-            export[sid] = {
-                k: v
-                for k, v in tenant.items()
-                if k
-                not in (
-                    "store_id",
-                    "created_at",
-                    "updated_at",
-                    "active",
-                )
-                or k in ("store_name", "store_url", "platform")
-            }
-            export[sid]["store_name"] = tenant.get("store_name")
-            export[sid]["store_url"] = tenant.get("store_url")
-            export[sid]["platform"] = tenant.get("platform")
-            # flatten credentials already in tenant
-            for key in (
-                "consumer_key",
-                "consumer_secret",
-                "access_token",
-                "currency_symbol",
-            ):
-                if tenant.get(key) is not None:
-                    export[sid][key] = tenant.get(key)
-        with open(TENANTS_FILE, "w") as f:
-            json.dump(export, f, indent=4)
-    except Exception as e:
-        print(f"Warning: could not sync tenants.json: {e}")
+    _maybe_backup_tenants_json()
 
 
 def get_tenant(

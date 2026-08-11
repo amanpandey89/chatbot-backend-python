@@ -18,6 +18,9 @@ from src.services.store import register_tenant, get_tenant, migrate_tenants_from
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from src.services.store import APP_DB
+
+    print(f"APP_DB          : {os.path.abspath(APP_DB)}")
     migrate_tenants_from_json()
 
     store_id = os.getenv("STORE_ID")
