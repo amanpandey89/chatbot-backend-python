@@ -133,10 +133,23 @@ def _render(request: Request, name: str, ctx: dict, status_code: int = 200):
             ctx["session_token"] = create_tenant_session_token(store_id)
         else:
             ctx["session_token"] = ""
-    return templates.TemplateResponse(request, name, ctx, status_code=status_code)
+    if store_id and "platform" not in ctx:
+        tenant = get_tenant(store_id, include_inactive=True, include_secrets=False) or {}
+        ctx["platform"] = (tenant.get("platform") or "woocommerce").lower()
+    resp = templates.TemplateResponse(request, name, ctx, status_code=status_code)
+    # Allow embedding in Shopify admin (merchant dashboard / login / setup)
+    resp.headers["Content-Security-Policy"] = (
+        "frame-ancestors https://admin.shopify.com https://*.myshopify.com "
+        "https://*.shopify.com 'self';"
+    )
+    if "x-frame-options" in resp.headers:
+        del resp.headers["x-frame-options"]
+    return resp
 
 
 def _require(request: Request, store_id: str):
+    if not merchant_has_password_login(store_id):
+        return RedirectResponse(url=f"/app/{store_id}/setup", status_code=303)
     ok = require_tenant(request, expected_store_id=store_id)
     if not ok:
         return RedirectResponse(url=f"/app/{store_id}/login", status_code=303)
@@ -144,6 +157,13 @@ def _require(request: Request, store_id: str):
     if not tenant:
         return RedirectResponse(url=f"/app/{store_id}/login", status_code=303)
     return None
+
+
+def _merchant_entry_url(store_id: str) -> str:
+    """First-time setup or login — never platform /admin."""
+    if not merchant_has_password_login(store_id):
+        return f"/app/{store_id}/setup"
+    return f"/app/{store_id}/login"
 
 
 def _authed_redirect(store_id: str, path: str = "", request: Optional[Request] = None):
@@ -225,14 +245,114 @@ def app_login_picker(request: Request):
     return _render(request, "tenant/login.html", {"store_id": "", "error": None})
 
 
+@router.get("/{store_id}/setup", response_class=HTMLResponse)
+def app_setup_page(request: Request, store_id: str):
+    tenant = get_tenant(store_id, include_inactive=True, include_secrets=False)
+    if not tenant:
+        return _render(
+            request,
+            "tenant/setup.html",
+            {
+                "store_id": store_id,
+                "error": "Store not found. Install/connect the app first.",
+                "username": "",
+                "session_token": "",
+                "store_name": "",
+            },
+            status_code=404,
+        )
+    if merchant_has_password_login(store_id):
+        if require_tenant(request, expected_store_id=store_id):
+            return _authed_redirect(store_id, request=request)
+        return RedirectResponse(url=f"/app/{store_id}/login", status_code=303)
+    platform = (tenant.get("platform") or "woocommerce").lower()
+    return _render(
+        request,
+        "tenant/setup.html",
+        {
+            "store_id": store_id,
+            "error": None,
+            "username": "",
+            "session_token": "",
+            "store_name": tenant.get("store_name") or "",
+            "platform": platform,
+        },
+    )
+
+
+@router.post("/{store_id}/setup")
+def app_setup(
+    request: Request,
+    store_id: str,
+    username: str = Form(""),
+    password: str = Form(""),
+    confirm_password: str = Form(""),
+):
+    from src.services.tenant_auth import bootstrap_merchant_credentials
+
+    tenant = get_tenant(store_id, include_inactive=True, include_secrets=False) or {}
+    platform = (tenant.get("platform") or "woocommerce").lower()
+    store_name = tenant.get("store_name") or ""
+
+    def _err(msg: str, code: int = 400):
+        return _render(
+            request,
+            "tenant/setup.html",
+            {
+                "store_id": store_id,
+                "error": msg,
+                "username": (username or "").strip(),
+                "session_token": "",
+                "store_name": store_name,
+                "platform": platform,
+            },
+            status_code=code,
+        )
+
+    if not tenant:
+        return _err("Store not found. Install/connect the app first.", 404)
+    if merchant_has_password_login(store_id):
+        return RedirectResponse(url=f"/app/{store_id}/login", status_code=303)
+
+    pwd = (password or "").strip()
+    confirm = (confirm_password or "").strip()
+    if pwd != confirm:
+        return _err("Passwords do not match.")
+
+    ok, message = bootstrap_merchant_credentials(
+        store_id,
+        username=username,
+        password=pwd,
+        store_url=tenant.get("store_url") or "",
+    )
+    if not ok:
+        return _err(message)
+    return _authed_redirect(store_id, request=request)
+
+
 @router.get("/{store_id}/login", response_class=HTMLResponse)
 def app_login_page(request: Request, store_id: str):
+    if not get_tenant(store_id, include_inactive=True):
+        return _render(
+            request,
+            "tenant/login.html",
+            {
+                "store_id": store_id,
+                "error": "Store not found.",
+                "username": "",
+                "session_token": "",
+            },
+            status_code=404,
+        )
+    if not merchant_has_password_login(store_id):
+        return RedirectResponse(url=f"/app/{store_id}/setup", status_code=303)
     if require_tenant(request, expected_store_id=store_id):
         return _authed_redirect(store_id, request=request)
     try:
         ensure_tenant_api_key(store_id)
     except Exception:
         pass
+    tenant = get_tenant(store_id, include_inactive=True, include_secrets=False) or {}
     return _render(
         request,
         "tenant/login.html",
@@ -241,7 +361,8 @@ def app_login_page(request: Request, store_id: str):
             "error": None,
             "username": "",
             "session_token": "",
-            "has_password_login": merchant_has_password_login(store_id),
+            "has_password_login": True,
+            "platform": (tenant.get("platform") or "woocommerce").lower(),
         },
     )
 
@@ -254,7 +375,9 @@ def app_login(
     password: str = Form(""),
 ):
     store_id = (store_id or "").strip()
-    if not get_tenant(store_id, include_inactive=False):
+    tenant = get_tenant(store_id, include_inactive=False) or {}
+    platform = (tenant.get("platform") or "woocommerce").lower()
+    if not tenant:
         return _render(
             request,
             "tenant/login.html",
@@ -263,9 +386,13 @@ def app_login(
                 "error": "Store not found or inactive.",
                 "username": username,
                 "session_token": "",
+                "platform": platform,
             },
             status_code=404,
         )
+
+    if not merchant_has_password_login(store_id):
+        return RedirectResponse(url=f"/app/{store_id}/setup", status_code=303)
 
     user = (username or "").strip()
     pwd = (password or "").strip()
@@ -278,19 +405,7 @@ def app_login(
                 "error": "Enter username and password.",
                 "username": user,
                 "session_token": "",
-            },
-            status_code=400,
-        )
-
-    if not merchant_has_password_login(store_id):
-        return _render(
-            request,
-            "tenant/login.html",
-            {
-                "store_id": store_id,
-                "error": "Merchant login is not set up yet. Ask your admin to set username/password on this store.",
-                "username": user,
-                "session_token": "",
+                "platform": platform,
             },
             status_code=400,
         )
@@ -304,6 +419,7 @@ def app_login(
                 "error": "Invalid username or password.",
                 "username": user,
                 "session_token": "",
+                "platform": platform,
             },
             status_code=401,
         )
