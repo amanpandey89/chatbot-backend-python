@@ -8,6 +8,12 @@ import httpx
 
 from src.services.woocommerce import strip_html
 
+# Same rule as catalog client: avoid "bot"/"crawler" in UA on WP Engine.
+_BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/122.0.0.0 Safari/537.36"
+)
 
 # Built-in types we always try (in addition to discovered CPTs)
 _CORE_WP_TYPES = ("posts", "pages")
@@ -33,7 +39,7 @@ def _base_url(tenant: dict) -> str:
 
 def _headers() -> Dict[str, str]:
     return {
-        "User-Agent": "Mozilla/5.0 (compatible; ASA-KnowledgeSync/1.0)",
+        "User-Agent": _BROWSER_UA,
         "Accept": "application/json",
     }
 

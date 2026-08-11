@@ -38,7 +38,9 @@
   <form method="post" action="/app/{{ store_id }}/settings/test-woocommerce{% if session_token %}?asa_session={{ session_token }}{% endif %}" style="margin-top:12px;" data-busy="Testing WooCommerce…" data-busy-sub="Calling /wp-json/wc/v3/products with your saved keys.">
     <button class="btn secondary" type="submit">Test WooCommerce connection</button>
   </form>
-  <p class="muted" style="margin-top:8px;">This uses the same product API chat uses. If the test fails, recommendations cannot show product cards.</p>
+  <p class="muted" style="margin-top:8px;">
+    This uses the same product API chat uses. After generating new WooCommerce keys, paste <strong>both</strong> values and click <strong>Save</strong> before testing (blank fields keep the old keys).
+  </p>
   {% endif %}
 </div>
 
