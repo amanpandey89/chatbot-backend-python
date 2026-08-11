@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Store login · AI Shopping Assistant</title>
+  <title>Create merchant account · AI Shopping Assistant</title>
   <link rel="icon" href="/static/logo.png" type="image/png" />
   <style>
     body {
@@ -12,7 +12,7 @@
       background: radial-gradient(700px 400px at 20% 0%, rgba(79,209,138,.18), transparent 55%), #141210;
     }
     .card {
-      width: 100%; max-width: 420px; background: #2a2521; border: 1px solid rgba(255,255,255,.12);
+      width: 100%; max-width: 440px; background: #2a2521; border: 1px solid rgba(255,255,255,.12);
       border-radius: 18px; padding: 24px; box-shadow: 0 12px 32px rgba(0,0,0,.28);
     }
     label { display: block; font-size: 12px; color: #b0a79e; margin-bottom: 6px; font-weight: 600; }
@@ -30,49 +30,34 @@
     .error { margin-bottom: 12px; padding: 10px; border-radius: 10px; background: rgba(255,107,122,.12); color: #ffc2c9; font-size: 13px; }
     .muted { color: #a89f96; font-size: 13px; line-height: 1.5; }
     .hint { margin-top: 14px; padding: 10px; border-radius: 10px; background: rgba(255,255,255,.04); font-size: 12px; color: #a89f96; line-height: 1.45; }
-    a { color: #4fd18a; }
+    code { background: rgba(0,0,0,.3); padding: 2px 6px; border-radius: 6px; font-size: 12px; }
   </style>
 </head>
 <body>
   <div class="card">
-    <h1 style="margin:0 0 8px;font-size:22px;">Merchant login</h1>
+    <h1 style="margin:0 0 8px;font-size:22px;">Create merchant account</h1>
     <p class="muted">
       {% if platform == 'shopify' %}
-      Sign in with the username and password you created for this Shopify store.
+      Your Shopify store is connected. Create a username and password to open the merchant dashboard (same as WordPress setup).
       {% else %}
-      Sign in with the username and password you created in WordPress (AI Assistant → Overview), or that your platform admin set.
+      Create a username and password for this store’s merchant dashboard.
       {% endif %}
     </p>
+    <p class="muted" style="margin-top:8px;">Store: <code>{{ store_id }}</code>{% if store_name %} · {{ store_name }}{% endif %}</p>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
-    <form method="post" action="/app/{{ store_id }}/login" id="loginForm" accept-charset="UTF-8">
-      <label for="store_id_input">Store ID</label>
-      <input id="store_id_input" name="store_id_display" value="{{ store_id }}" {% if store_id %}readonly{% endif %} placeholder="your-store-id" required />
+    <form method="post" action="/app/{{ store_id }}/setup" accept-charset="UTF-8">
       <label for="username">Username</label>
-      <input id="username" name="username" type="text" required autocomplete="username" placeholder="merchant" value="{{ username or '' }}" />
+      <input id="username" name="username" type="text" required minlength="3" autocomplete="username" placeholder="store-owner" value="{{ username or '' }}" />
       <label for="password">Password</label>
-      <input id="password" name="password" type="password" required autocomplete="current-password" placeholder="••••••••" />
-      <button class="btn" type="submit">Login</button>
+      <input id="password" name="password" type="password" required minlength="8" autocomplete="new-password" placeholder="At least 8 characters" />
+      <label for="confirm_password">Confirm password</label>
+      <input id="confirm_password" name="confirm_password" type="password" required minlength="8" autocomplete="new-password" placeholder="Repeat password" />
+      <button class="btn" type="submit">Create account &amp; continue</button>
     </form>
     <div class="hint">
-      {% if platform == 'shopify' %}
-      First time? <a href="/app/{{ store_id }}/setup">Create your merchant account</a>.
-      Platform admin can reset login under Admin → Stores → Merchant login.
-      {% else %}
-      WordPress: create your account once under <strong>AI Assistant → Overview</strong>.
-      Platform admin can reset login under Admin → Stores → Merchant login.
-      {% endif %}
+      Remember these credentials — you’ll use them next time you open the app.
+      A platform admin can reset login under Admin → Stores → Merchant login.
     </div>
   </div>
-  <script>
-    (function () {
-      var form = document.getElementById('loginForm');
-      var storeInput = document.getElementById('store_id_input');
-      form.addEventListener('submit', function () {
-        var sid = (storeInput.value || '').trim();
-        if (!sid) return;
-        form.action = '/app/' + encodeURIComponent(sid) + '/login';
-      });
-    })();
-  </script>
 </body>
 </html>

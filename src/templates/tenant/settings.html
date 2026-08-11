@@ -39,9 +39,9 @@
   </form>
 
   <p style="margin:14px 0 8px;">
-    <a class="btn secondary" href="/shopify/install?shop={{ (tenant.store_url or store_id)|urlencode }}&amp;direct=1" style="margin-bottom:0;">Reconnect Shopify app (OAuth)</a>
+    <a class="btn secondary" href="/shopify/install?shop={{ (tenant.store_url or store_id)|urlencode }}&amp;direct=1" target="_top" rel="noopener" style="margin-bottom:0;">Reconnect Shopify app (OAuth)</a>
   </p>
-  <p class="muted">Opens Shopify install so this store gets a fresh Admin API token for catalog + orders.</p>
+  <p class="muted">Opens Shopify install in the top window (required — Shopify login cannot run inside this iframe). Your merchant password is kept.</p>
 
   {% if shopify_ready %}
   <form method="post" action="/app/{{ store_id }}/settings/test-shopify{% if session_token %}?asa_session={{ session_token }}{% endif %}" style="margin-top:12px;" data-busy="Testing Shopify…" data-busy-sub="Calling Shopify Admin API /shop.json and /products.json with your saved token.">

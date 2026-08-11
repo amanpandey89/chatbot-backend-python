@@ -350,33 +350,59 @@ def _shop_from_host(host: Optional[str]) -> Optional[str]:
     return None
 
 
+def _frame_headers(resp):
+    """Allow Shopify admin to embed our merchant UI."""
+    resp.headers["Content-Security-Policy"] = (
+        "frame-ancestors https://admin.shopify.com https://*.myshopify.com "
+        "https://*.shopify.com 'self';"
+    )
+    if "x-frame-options" in resp.headers:
+        del resp.headers["x-frame-options"]
+    return resp
+
+
 def _tenant_has_token(shop: str) -> bool:
     tenant = get_tenant(shop, include_inactive=True, include_secrets=True)
     return bool(tenant and tenant.get("access_token"))
 
 
-def _connected_page(request: Request, shop: str) -> HTMLResponse:
+def _merchant_gate_url(shop: str) -> str:
+    """WordPress-style: create password first, then login — never /admin."""
+    from src.services.tenant_auth import merchant_has_password_login
+
+    if not merchant_has_password_login(shop):
+        return f"/app/{shop}/setup"
+    return f"/app/{shop}/login"
+
+
+def _connected_page(request: Request, shop: str) -> RedirectResponse:
+    """After Shopify opens the app: send merchant to setup or login."""
     from src.services.tenant_auth import (
-        set_tenant_cookie,
         ensure_tenant_api_key,
+        merchant_has_password_login,
+        require_tenant,
         app_url_with_session,
+        set_tenant_cookie,
     )
 
     backend = _backend_url(request)
-    tenant = get_tenant(shop, include_inactive=True, include_secrets=False) or {}
-    store_name = tenant.get("store_name") or shop.replace(".myshopify.com", "").title()
     try:
         ensure_tenant_api_key(shop)
     except Exception as e:
         print(f"tenant api key bootstrap skipped: {e}")
 
-    # Session in URL — required for Shopify admin iframe (third-party cookies blocked)
-    dash_path = app_url_with_session(shop)
-    dash_url = f"{backend}{dash_path}"
-    resp = RedirectResponse(url=dash_url, status_code=302)
-    set_tenant_cookie(resp, shop, request=request)
-    resp.headers["Refresh"] = f"0;url={dash_url}"
-    return resp
+    # Already signed in to merchant dashboard → Overview
+    if merchant_has_password_login(shop) and require_tenant(
+        request, expected_store_id=shop
+    ):
+        dash_url = f"{backend}{app_url_with_session(shop)}"
+        resp = RedirectResponse(url=dash_url, status_code=302)
+        set_tenant_cookie(resp, shop, request=request)
+        return _frame_headers(resp)
+
+    gate = _merchant_gate_url(shop)
+    resp = RedirectResponse(url=f"{backend}{gate}", status_code=302)
+    return _frame_headers(resp)
 
 
 def _resolve_shop(request: Request, shop: Optional[str] = None) -> str:
@@ -403,8 +429,8 @@ def shopify_version():
     """Quick check that the latest Shopify fix is deployed."""
     return {
         "ok": True,
-        "shopify_handler": "v3-valid-shop-required",
-        "hint": "App URL must be /shopify?shop=your-store.myshopify.com (opened from Shopify admin)",
+        "shopify_handler": "v4-merchant-setup-login",
+        "hint": "App open → merchant create-password or login (not platform /admin)",
     }
 
 
@@ -536,14 +562,28 @@ async def shopify_callback(
         raise HTTPException(status_code=400, detail="No access token returned")
 
     store_name = shop.replace(".myshopify.com", "").replace("-", " ").title()
+    existing = get_tenant(shop, include_inactive=True, include_secrets=True) or {}
     payload = {
-        "platform": "shopify",
-        "store_name": store_name,
-        "store_url": shop,
-        "shop": shop,
-        "access_token": access_token,
-        "scope": scope,
+        k: v
+        for k, v in existing.items()
+        if k
+        not in (
+            "store_id",
+            "active",
+            "created_at",
+            "updated_at",
+        )
     }
+    payload.update(
+        {
+            "platform": "shopify",
+            "store_name": existing.get("store_name") or store_name,
+            "store_url": shop,
+            "shop": shop,
+            "access_token": access_token,
+            "scope": scope,
+        }
+    )
 
     try:
         symbol = await fetch_shop_currency_symbol(payload)
@@ -559,24 +599,58 @@ async def shopify_callback(
     except Exception as e:
         print(f"Webhook registration skipped: {e}")
 
+    try:
+        from src.services.tenant_auth import ensure_tenant_api_key
+
+        ensure_tenant_api_key(shop)
+    except Exception as e:
+        print(f"tenant api key bootstrap skipped: {e}")
+
     backend = _backend_url(request)
-    admin_url = f"{backend}/admin/stores/{shop}"
+    gate = _merchant_gate_url(shop)
+    next_url = f"{backend}{gate}"
+    from src.services.tenant_auth import merchant_has_password_login
+
+    needs_setup = not merchant_has_password_login(shop)
+    title = "Create your merchant account" if needs_setup else "App connected"
+    body = (
+        "Shopify is connected. Create a username and password to open your dashboard "
+        "(same as WordPress)."
+        if needs_setup
+        else "Shopify is connected. Sign in with your merchant username and password."
+    )
+    btn = "Create merchant account" if needs_setup else "Merchant login"
+    display_name = payload.get("store_name") or store_name
     html = f"""<!DOCTYPE html>
     <html><head><title>Shopify app installed</title>
     <style>{_page_styles()}</style>
+    <meta http-equiv="refresh" content="0;url={next_url}">
+    <script>
+      (function () {{
+        var url = {next_url!r};
+        try {{
+          if (window.top && window.top !== window.self) {{
+            window.location.replace(url);
+            return;
+          }}
+        }} catch (e) {{}}
+        window.location.replace(url);
+      }})();
+    </script>
     </head>
     <body><div class="card">
-      <h1>App installed</h1>
-      <p><strong>{store_name}</strong> is connected as a Shopify store.</p>
+      <h1>{title}</h1>
+      <p><strong>{display_name}</strong> is connected as a Shopify store.</p>
       <p>Store ID: <code>{shop}</code></p>
+      <p class="muted">{body}</p>
       <p class="muted">Enable <strong>AI Shopping Chat</strong> in Themes → Customize → App embeds.
       Backend URL: <code>{backend}</code></p>
-      <p><a class="btn" href="{admin_url}" target="_blank" rel="noopener">Open in admin dashboard</a></p>
+      <p><a class="btn" href="{next_url}">{btn}</a></p>
     </div></body></html>"""
     resp = HTMLResponse(content=html)
     resp.delete_cookie("shopify_oauth_state")
     resp.delete_cookie("shopify_oauth_shop")
-    return resp
+    return _frame_headers(resp)
 
 
 async def _register_uninstall_webhook(shop: str, access_token: str, backend: str):
