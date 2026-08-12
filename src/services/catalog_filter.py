@@ -58,6 +58,20 @@ _MODEL_RE = re.compile(
     re.I,
 )
 
+# Generation only when it sits next to the brand (not "12 månaders garanti")
+_IPHONE_GEN_RE = re.compile(
+    r"iphone[\s\-]*?(se|[0-9]{1,2})(?![0-9])",
+    re.I,
+)
+_GALAXY_GEN_RE = re.compile(
+    r"(?:galaxy|samsung)[\s\-]*s?\s*([0-9]{1,2})(?![0-9])",
+    re.I,
+)
+_PIXEL_GEN_RE = re.compile(
+    r"pixel[\s\-]*([0-9]{1,2})(?![0-9])",
+    re.I,
+)
+
 _BUDGET_RE = re.compile(
     r"(?:under|below|max|upto|up\s*to|less\s*than|<|budget)\s*"
     r"(?:sek|kr|£|\$|€|rs\.?|inr)?\s*"
@@ -233,33 +247,93 @@ def _blob_has_keyword(blob: str, keyword: str) -> bool:
     return any(re.search(rf"\b{re.escape(v)}\b", blob) for v in _keyword_variants(keyword))
 
 
-def _model_matches_name(model: str, name: str) -> bool:
-    """True if product name is this phone model (not a higher/lower generation)."""
-    m = _norm(model)
-    n = _norm(name)
-    if not m or not n:
-        return False
-    if m in n:
-        return True
-    if m.replace(" ", "") in n.replace(" ", ""):
-        return True
-    tokens = [t for t in m.split() if t]
-    if not tokens:
-        return False
-    # All tokens must appear; for "iphone 12" require both so iPhone 14 is excluded
-    if not all(re.search(rf"\b{re.escape(t)}\b", n) for t in tokens):
-        return False
-    # If model has a generation number, reject other generations in the name
-    nums = [t for t in tokens if t.isdigit()]
-    if nums:
-        # e.g. name "iphone 14" should not match model "iphone 12"
-        other = re.findall(
-            r"\b(?:iphone|galaxy|pixel)\s*(?:se|s)?\s*([0-9]{1,2})\b", n, re.I
+def _first_gen(regex: re.Pattern, text: str) -> str:
+    m = regex.search(text or "")
+    return (m.group(1) or "").lower() if m else ""
+
+
+def parse_requested_phone_model(message: str) -> Dict[str, str]:
+    """iphone 12 / galaxy s21 / pixel 8 → {brand, gen} from the shopper query only."""
+    text = _norm(message)
+    gen = _first_gen(_IPHONE_GEN_RE, text)
+    if gen:
+        return {"brand": "iphone", "gen": gen}
+    gen = _first_gen(_GALAXY_GEN_RE, text)
+    if gen:
+        return {"brand": "galaxy", "gen": gen}
+    gen = _first_gen(_PIXEL_GEN_RE, text)
+    if gen:
+        return {"brand": "pixel", "gen": gen}
+    return {}
+
+
+def _product_model_text(product: dict) -> str:
+    """Title/sku/taxonomy/url only — never long description (mentions other models)."""
+    attrs = product.get("attributes") or {}
+    attr_bits: List[str] = []
+    if isinstance(attrs, dict):
+        for opts in attrs.values():
+            if isinstance(opts, list):
+                attr_bits.extend(str(x) for x in opts)
+            elif opts:
+                attr_bits.append(str(opts))
+    return _norm(
+        " ".join(
+            [
+                str(product.get("name") or ""),
+                str(product.get("sku") or ""),
+                " ".join(str(x) for x in (product.get("categories") or [])),
+                " ".join(str(x) for x in (product.get("tags") or [])),
+                " ".join(attr_bits),
+                str(product.get("product_url") or ""),
+            ]
         )
-        for found in other:
-            if found not in nums:
-                return False
-    return True
+    )
+
+
+def product_phone_generation(product: dict) -> Dict[str, str]:
+    """Primary phone generation from the listing title, then sku/url."""
+    name = str(product.get("name") or "")
+    gen = _first_gen(_IPHONE_GEN_RE, name)
+    if gen:
+        return {"brand": "iphone", "gen": gen}
+    gen = _first_gen(_GALAXY_GEN_RE, name)
+    if gen:
+        return {"brand": "galaxy", "gen": gen}
+    gen = _first_gen(_PIXEL_GEN_RE, name)
+    if gen:
+        return {"brand": "pixel", "gen": gen}
+
+    extra = _product_model_text(product)
+    gen = _first_gen(_IPHONE_GEN_RE, extra)
+    if gen:
+        return {"brand": "iphone", "gen": gen}
+    gen = _first_gen(_GALAXY_GEN_RE, extra)
+    if gen:
+        return {"brand": "galaxy", "gen": gen}
+    gen = _first_gen(_PIXEL_GEN_RE, extra)
+    if gen:
+        return {"brand": "pixel", "gen": gen}
+    return {}
+
+
+def _model_matches_product(requested: Dict[str, str], product: dict) -> bool:
+    if not requested or not requested.get("gen"):
+        return False
+    found = product_phone_generation(product)
+    if not found:
+        return False
+    return found.get("brand") == requested.get("brand") and found.get("gen") == requested.get(
+        "gen"
+    )
+
+
+def _model_matches_name(model: str, name: str) -> bool:
+    """Back-compat helper: compare a query model string to a product title."""
+    requested = parse_requested_phone_model(model)
+    if not requested:
+        return False
+    return _model_matches_product(requested, {"name": name})
 
 
 def parse_query_constraints(message: str) -> Dict[str, Any]:
@@ -300,11 +374,14 @@ def parse_query_constraints(message: str) -> Dict[str, Any]:
     )
 
     keywords = extract_search_keywords(message)
+    requested = parse_requested_phone_model(message)
     # When a phone model is present, drop brand/generation tokens from free-text keywords
-    if models:
+    if models or requested:
         drop = {"iphone", "galaxy", "pixel", "samsung", "phone", "phones", "mobil"}
         for model in models:
             drop.update(model.split())
+        if requested.get("gen"):
+            drop.add(requested["gen"])
         keywords = [k for k in keywords if k not in drop]
 
     gender = ""
@@ -315,6 +392,7 @@ def parse_query_constraints(message: str) -> Dict[str, Any]:
 
     return {
         "models": models,
+        "requested_phone": requested,
         "budget": budget,
         "wants_phone": wants_phone,
         "wants_accessory": wants_accessory,
@@ -344,8 +422,16 @@ def filter_products_for_query(
             pool = accessories
 
     models = constraints["models"]
+    requested = constraints.get("requested_phone") or parse_requested_phone_model(
+        constraints.get("raw") or message
+    )
     model_locked = False
-    if models:
+    if requested.get("gen"):
+        exact = [p for p in pool if _model_matches_product(requested, p)]
+        # Hard lock: never fall back to other iPhone generations
+        pool = exact
+        model_locked = True
+    elif models:
         exact = [
             p
             for p in pool
@@ -353,26 +439,8 @@ def filter_products_for_query(
                 _model_matches_name(model, str(p.get("name") or "")) for model in models
             )
         ]
-        if exact:
-            pool = exact
-            model_locked = True
-        else:
-            # Soft: same brand + same generation number when possible
-            soft = []
-            for p in pool:
-                name = _norm(str(p.get("name") or ""))
-                for model in models:
-                    brand = model.split()[0] if model.split() else ""
-                    nums = [t for t in model.split() if t.isdigit()]
-                    if brand and brand not in name:
-                        continue
-                    if nums and not any(re.search(rf"\b{re.escape(n)}\b", name) for n in nums):
-                        continue
-                    soft.append(p)
-                    break
-            if soft:
-                pool = soft
-                model_locked = True
+        pool = exact
+        model_locked = True
 
     keywords = constraints.get("keywords") or []
     type_keys = [
@@ -434,25 +502,34 @@ def filter_products_for_query(
         if womens:
             pool = womens
 
+    _COLOR_SYNONYMS = {
+        "black": ("black", "svart", "space grey", "space gray", "graphite", "midnight"),
+        "white": ("white", "vit", "starlight", "silver"),
+        "blue": ("blue", "blå", "bla", "navy", "sierra"),
+        "red": ("red", "röd", "rod", "product red"),
+        "green": ("green", "grön", "gron", "alpine"),
+        "pink": ("pink", "rosa"),
+        "yellow": ("yellow", "gul"),
+        "purple": ("purple", "lila"),
+        "orange": ("orange",),
+        "gold": ("gold", "guld"),
+        "silver": ("silver",),
+    }
     colors = []
-    for token in (
-        "black",
-        "white",
-        "blue",
-        "red",
-        "green",
-        "pink",
-        "yellow",
-        "purple",
-        "orange",
-        "gold",
-        "silver",
-    ):
-        if re.search(rf"\b{token}\b", constraints.get("raw") or ""):
+    raw = constraints.get("raw") or ""
+    for token, syns in _COLOR_SYNONYMS.items():
+        if any(re.search(rf"\b{re.escape(s)}\b", raw) for s in syns):
             colors.append(token)
     constraints["colors"] = colors
     if colors:
-        colored = [p for p in pool if any(c in _product_blob(p) for c in colors)]
+        wanted = []
+        for c in colors:
+            wanted.extend(_COLOR_SYNONYMS.get(c, (c,)))
+        colored = [
+            p
+            for p in pool
+            if any(re.search(rf"\b{re.escape(s)}\b", _product_model_text(p)) for s in wanted)
+        ]
         if colored:
             pool = colored
 
@@ -470,7 +547,9 @@ def filter_products_for_query(
         blob = _product_blob(p)
         name = _norm(str(p.get("name") or ""))
         model_hit = 0
-        if models:
+        if requested.get("gen"):
+            model_hit = 0 if _model_matches_product(requested, p) else 1
+        elif models:
             model_hit = 0 if any(_model_matches_name(m, name) for m in models) else 1
         kw_miss = 0
         for k in keywords:
@@ -505,6 +584,7 @@ def enforce_recommendation_ids(
     by_id = {p.get("id"): p for p in products}
     constraints = constraints or {}
     models = constraints.get("models") or []
+    requested = constraints.get("requested_phone") or {}
     budget = constraints.get("budget")
     keywords = constraints.get("keywords") or []
     type_keys = [
@@ -544,7 +624,10 @@ def enforce_recommendation_ids(
             continue
         name = _norm(str(product.get("name") or ""))
         blob = _product_blob(product)
-        if models and not any(_model_matches_name(m, name) for m in models):
+        if requested.get("gen"):
+            if not _model_matches_product(requested, product):
+                continue
+        elif models and not any(_model_matches_name(m, name) for m in models):
             continue
         if budget:
             price = _parse_price(product.get("price") or product.get("regular_price"))
