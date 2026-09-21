@@ -76,9 +76,21 @@ def _conn():
 
 def _detect_platform(data: dict) -> str:
     platform = (data.get("platform") or "").strip().lower()
-    if platform in ("woocommerce", "shopify", "magento", "wordpress"):
+    if platform in (
+        "woocommerce",
+        "shopify",
+        "magento",
+        "wordpress",
+        "service",
+        "lead",
+        "support",
+        "livestorefix",
+        "agency",
+    ):
         if platform == "wordpress":
             return "woocommerce"
+        if platform in ("lead", "support", "livestorefix", "agency"):
+            return "service"
         return platform
     if data.get("access_token") or data.get("shopify_domain"):
         return "shopify"
