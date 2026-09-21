@@ -38,9 +38,15 @@ async def create_new_session(body: SessionRequest):
         )
 
     # Best-effort currency lookup — never fail session creation
-    if "currency_symbol" not in tenant:
+    platform = (tenant.get("platform") or "woocommerce").lower()
+    if "currency_symbol" not in tenant and platform not in (
+        "service",
+        "lead",
+        "support",
+        "livestorefix",
+        "agency",
+    ):
         try:
-            platform = (tenant.get("platform") or "woocommerce").lower()
             if platform == "shopify":
                 from src.services.shopify_service import fetch_shop_currency_symbol
 
@@ -91,15 +97,29 @@ async def create_new_session(body: SessionRequest):
     store_name = tenant.get("store_name") or store_id
     auth_state = (user_context or {}).get("auth_state") or "guest"
 
-    greeting = (
-        f"Hi! I am your shopping assistant for {store_name}. "
-        "What are you looking for today?"
+    from src.services.service_chat import (
+        is_service_platform,
+        service_greeting,
+        service_quick_replies,
+        service_ctas,
     )
-    if auth_state == "logged_in":
+
+    if is_service_platform(platform):
+        greeting = service_greeting(tenant)
+        quick_replies = service_quick_replies(tenant)
+        mode = "service"
+    else:
         greeting = (
-            f"Hi! Welcome back to {store_name}. "
+            f"Hi! I am your shopping assistant for {store_name}. "
             "What are you looking for today?"
         )
+        if auth_state == "logged_in":
+            greeting = (
+                f"Hi! Welcome back to {store_name}. "
+                "What are you looking for today?"
+            )
+        quick_replies = None
+        mode = "shopping"
 
     return {
         "success": True,
@@ -108,6 +128,10 @@ async def create_new_session(body: SessionRequest):
         "currency_symbol": tenant.get("currency_symbol", "₹"),
         "greeting": greeting,
         "auth_state": auth_state,
+        "mode": mode,
+        "platform": platform,
+        "quick_replies": quick_replies,
+        "actions": service_ctas(tenant)[:3] if mode == "service" else [],
     }
 
 

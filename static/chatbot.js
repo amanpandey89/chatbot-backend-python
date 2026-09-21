@@ -18,6 +18,8 @@
   let isOpen = false;  // is the chat window open?
   let isLoading = false;  // are we waiting for a backend response?
   let currencySymbol = scriptTag.getAttribute('data-currency') || '₹';
+  let chatMode = (scriptTag.getAttribute('data-mode') || '').toLowerCase(); // shopping | service
+  let sessionQuickReplies = null;
   // filled/overridden after /api/session call
 
   // Shown only before the first user message in a new session
@@ -27,8 +29,18 @@
     "Recommend a phone",
     "Find accessories"
   ];
+  const SERVICE_QUICK_REPLIES = [
+    "My store is down right now",
+    "Checkout / payments broken",
+    "Book a free rescue session",
+    "Do you fix Shopify?",
+    "Long-term support"
+  ];
 
   function getQuickReplies() {
+    if (sessionQuickReplies && sessionQuickReplies.length) {
+      return sessionQuickReplies.slice();
+    }
     if (Array.isArray(window.CB_QUICK_REPLIES) && window.CB_QUICK_REPLIES.length) {
       return window.CB_QUICK_REPLIES.map(String).filter(Boolean);
     }
@@ -41,6 +53,7 @@
         }
       }
     } catch (e) { /* ignore */ }
+    if (chatMode === 'service') return SERVICE_QUICK_REPLIES.slice();
     return DEFAULT_QUICK_REPLIES.slice();
   }
 
@@ -315,6 +328,47 @@
       color: #888;
       margin-top: 8px;
     }
+    .cb-actions-card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 12px;
+      margin: 6px 0;
+      max-width: 92%;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      border: 1px solid #ececf3;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      box-sizing: border-box;
+    }
+    .cb-action-btn {
+      display: block;
+      width: 100%;
+      box-sizing: border-box;
+      text-align: center;
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      text-decoration: none;
+      border: 1px solid #6c47ff;
+      background: #6c47ff;
+      color: #fff;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    .cb-action-btn:hover { background: #5538d6; color: #fff; }
+    .cb-action-btn.secondary {
+      background: #fff;
+      color: #6c47ff;
+    }
+    .cb-action-btn.secondary:hover { background: #f3efff; }
+    .cb-action-btn.danger {
+      background: #d9485f;
+      border-color: #d9485f;
+      color: #fff;
+    }
+    .cb-action-btn.danger:hover { background: #c03952; color: #fff; }
     .cb-toast {
       align-self: center;
       background: #1a1a1a;
@@ -416,7 +470,7 @@
   win.className = 'cb-hidden';
   win.innerHTML = `
     <div id="cb-header">
-      <span>Shopping Assistant</span>
+      <span id="cb-header-title">Shopping Assistant</span>
       <button id="cb-close" title="Close">&#x2715;</button>
     </div>
     <div id="cb-messages"></div>
@@ -774,6 +828,32 @@
     scrollToBottom();
   }
 
+  function addActionsCard(message, actions) {
+    if (message) addMessage(message, 'bot');
+    const list = (actions || []).filter(function (a) {
+      return a && a.url && a.label;
+    });
+    if (!list.length) return;
+
+    const card = document.createElement('div');
+    card.className = 'cb-actions-card';
+    list.forEach(function (a) {
+      const style = (a.style || 'primary').toLowerCase();
+      const cls = style === 'danger'
+        ? 'cb-action-btn danger'
+        : (style === 'secondary' ? 'cb-action-btn secondary' : 'cb-action-btn');
+      const link = document.createElement('a');
+      link.className = cls;
+      link.href = a.url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = a.label;
+      card.appendChild(link);
+    });
+    messagesEl.appendChild(card);
+    scrollToBottom();
+  }
+
   // Enable or disable the send button
   function setLoading(loading) {
     isLoading = loading;
@@ -844,7 +924,20 @@
       if (res.ok && data && data.success) {
         sessionId = data.session_id;
         if (data.currency_symbol) currencySymbol = data.currency_symbol;
+        if (data.mode) chatMode = String(data.mode).toLowerCase();
+        if (Array.isArray(data.quick_replies) && data.quick_replies.length) {
+          sessionQuickReplies = data.quick_replies.map(String);
+        }
+        const titleEl = document.getElementById('cb-header-title');
+        if (titleEl && chatMode === 'service') {
+          titleEl.textContent = data.store_name
+            ? (String(data.store_name) + ' Assistant')
+            : 'Support Assistant';
+        }
         addMessage(data.greeting, 'bot');
+        if (chatMode === 'service' && Array.isArray(data.actions) && data.actions.length) {
+          addActionsCard('', data.actions);
+        }
         showQuickReplies();
         sendBtn.disabled = false; // enable send now that session exists
         return;
@@ -927,6 +1020,8 @@
             response.url,
             response.filters || {}
           );
+        } else if (response.type === 'actions') {
+          addActionsCard(response.message || '', response.actions || []);
         } else if (response.type === 'recommendations') {
           addProductCards(
             response.message,
@@ -938,6 +1033,9 @@
         } else {
           const botText = response.message || response.content;
           addMessage(botText, 'bot');
+          if (response.actions && response.actions.length) {
+            addActionsCard('', response.actions);
+          }
         }
       } else {
         addMessage(formatChatError(res, data), 'bot');

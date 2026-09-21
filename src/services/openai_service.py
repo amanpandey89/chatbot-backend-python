@@ -287,14 +287,19 @@ async def get_recommendation(
         except Exception as e:
             print(f"Training/RAG prompt skipped: {e}")
 
-    system_prompt = build_system_prompt(
-        products,
-        session.get("answers") or {},
-        tenant,
-        order_lookup,
-        session.get("user_context") or {},
-        training_block=training_block,
-    )
+    from src.services.service_chat import is_service_platform, build_service_system_prompt
+
+    if is_service_platform((tenant or {}).get("platform")):
+        system_prompt = build_service_system_prompt(tenant, training_block=training_block)
+    else:
+        system_prompt = build_system_prompt(
+            products,
+            session.get("answers") or {},
+            tenant,
+            order_lookup,
+            session.get("user_context") or {},
+            training_block=training_block,
+        )
 
     messages = cast(
         list[ChatCompletionMessageParam],

@@ -317,6 +317,8 @@ def admin_store_new(
     platform = (platform or "woocommerce").strip().lower()
     if platform == "wordpress":
         platform = "woocommerce"
+    if platform in ("lead", "support", "livestorefix", "agency"):
+        platform = "service"
 
     raw_store_id = (store_id or "").strip()
     store_url = store_url.strip().rstrip("/")
@@ -325,6 +327,17 @@ def admin_store_new(
 
         store_url = shopify_store_id(store_url)
         store_id = raw_store_id or store_url
+    elif platform == "service":
+        # Stable id from domain when not provided
+        from urllib.parse import urlparse
+
+        host = urlparse(
+            store_url if "://" in store_url else f"https://{store_url}"
+        ).netloc or store_url
+        host = host.replace("www.", "").strip().lower()
+        store_id = raw_store_id or host or str(uuid.uuid4())
+        if store_url and not store_url.startswith("http"):
+            store_url = f"https://{store_url}"
     else:
         store_id = raw_store_id or str(uuid.uuid4())
 
@@ -335,6 +348,10 @@ def admin_store_new(
     }
     if platform == "shopify":
         payload["shop"] = store_url
+    if platform == "service":
+        # Optional overrides via form fields reused as notes — defaults live in service_chat
+        payload["contact_phone"] = "(315) 715-8494"
+        payload["contact_email"] = "info@livestorefix.com"
     if consumer_key.strip():
         payload["consumer_key"] = consumer_key.strip()
     if consumer_secret.strip():

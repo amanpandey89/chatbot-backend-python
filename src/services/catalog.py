@@ -12,6 +12,8 @@ def _platform(tenant: dict) -> str:
 
 async def fetch_products(tenant: dict, force_refresh: bool = False) -> list:
     platform = _platform(tenant)
+    if platform in ("service", "lead", "support", "livestorefix", "agency"):
+        return []
     if platform == "shopify":
         # Reuse same in-memory cache key pattern via thin wrapper
         cache_key = f"shopify:{(tenant.get('store_url') or '').rstrip('/')}"
@@ -33,6 +35,8 @@ async def fetch_products(tenant: dict, force_refresh: bool = False) -> list:
 
 async def lookup_order_status(tenant: dict, messages: list) -> Optional[dict]:
     platform = _platform(tenant)
+    if platform in ("service", "lead", "support", "livestorefix", "agency"):
+        return None
     if platform == "shopify":
         return await shopify.lookup_shopify_order_status(tenant, messages)
     return await woo.lookup_order_status(tenant, messages)

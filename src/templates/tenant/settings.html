@@ -14,7 +14,35 @@
 <div class="card">
   <h2 style="margin:0 0 10px;font-size:16px;">Store connection</h2>
 
-  {% if platform == 'shopify' %}
+  {% if platform == 'service' %}
+  <p class="muted">This is a <strong>service / lead</strong> site (not a product catalog). Chat routes visitors to Free Rescue, Emergency ($399), or Long-Term Support. WooCommerce / Shopify API keys are not required.</p>
+  <p style="margin:8px 0 12px;"><span class="pill">Service mode</span></p>
+  <form method="post" action="/app/{{ store_id }}/settings/store-connection{% if session_token %}?asa_session={{ session_token }}{% endif %}">
+    <label for="store_name">Site name</label>
+    <input id="store_name" name="store_name" type="text" value="{{ tenant.store_name or '' }}" placeholder="LiveStoreFix" />
+
+    <label for="store_url">Website URL</label>
+    <input id="store_url" name="store_url" type="url" value="{{ tenant.store_url or '' }}" placeholder="https://livestorefix.com" required />
+
+    <label for="contact_phone">Contact phone</label>
+    <input id="contact_phone" name="contact_phone" type="text" value="{{ tenant.contact_phone or '' }}" placeholder="(315) 715-8494" />
+
+    <label for="contact_email">Contact email</label>
+    <input id="contact_email" name="contact_email" type="email" value="{{ tenant.contact_email or '' }}" placeholder="info@livestorefix.com" />
+
+    <label for="booking_url">Free rescue / booking URL</label>
+    <input id="booking_url" name="booking_url" type="url" value="{{ tenant.booking_url or '' }}" placeholder="https://livestorefix.com/" />
+
+    <label for="emergency_url">Emergency CTA URL</label>
+    <input id="emergency_url" name="emergency_url" type="url" value="{{ tenant.emergency_url or '' }}" placeholder="https://livestorefix.com/" />
+
+    <label for="longterm_url">Long-term support URL</label>
+    <input id="longterm_url" name="longterm_url" type="url" value="{{ tenant.longterm_url or '' }}" placeholder="https://livestorefix.com/" />
+
+    <button class="btn" type="submit">Save site connection</button>
+  </form>
+
+  {% elif platform == 'shopify' %}
   <p class="muted">Required for product recommendations and order lookup. Chat loads products via the <strong>Shopify Admin API</strong> using the app install token (not WooCommerce keys).</p>
   <p style="margin:8px 0 12px;">
     {% if shopify_ready %}<span class="pill">Connected</span>{% else %}<span class="pill" style="background:rgba(255,107,122,.2);color:#ffb3bb;">Incomplete — reconnect Shopify so chat can load products</span>{% endif %}

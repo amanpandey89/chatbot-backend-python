@@ -97,6 +97,54 @@ async def chat(body: ChatRequest):
     add_message(body.session_id, "user", body.message)
 
     try:
+        from src.services.service_chat import (
+            is_service_platform,
+            parse_service_ai_response,
+            service_ctas,
+        )
+
+        platform = (tenant.get("platform") or "woocommerce").lower()
+
+        # ── Service / lead sites (e.g. LiveStoreFix) — no product catalog ──
+        if is_service_platform(platform):
+            fresh_session = get_session(body.session_id)
+            if not fresh_session:
+                raise HTTPException(
+                    status_code=404, detail="Session not found or expired."
+                )
+            ai_response = await get_recommendation(
+                fresh_session, [], tenant, order_lookup=None
+            )
+            add_message(body.session_id, "assistant", ai_response)
+            parsed = parse_service_ai_response(ai_response, tenant)
+            # Always attach CTAs when AI returned plain FAQ text with clear intent
+            if parsed.get("type") == "question":
+                low = (body.message or "").lower()
+                if any(
+                    w in low
+                    for w in (
+                        "down",
+                        "urgent",
+                        "emergency",
+                        "broken",
+                        "checkout",
+                        "payment",
+                        "free",
+                        "rescue",
+                        "book",
+                        "support",
+                        "help",
+                        "fix",
+                    )
+                ):
+                    parsed = {
+                        "type": "actions",
+                        "message": parsed.get("message") or ai_response,
+                        "actions": service_ctas(tenant)[:3],
+                        "lead": {},
+                    }
+            return {"success": True, "response": parsed}
+
         products: list = []
         catalog_error = ""
         order_lookup = None
@@ -108,7 +156,6 @@ async def chat(body: ChatRequest):
 
         wants_products = _looks_like_product_request(body.message)
         store_url = (tenant.get("store_url") or "").rstrip("/")
-        platform = (tenant.get("platform") or "woocommerce").lower()
 
         # ── PLP navigation (browse / filter intent) ───────────────────────
         if wants_plp_navigation(body.message) and store_url:

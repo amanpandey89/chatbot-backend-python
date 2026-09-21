@@ -1026,6 +1026,10 @@ def app_settings(request: Request, store_id: str):
     platform = (tenant.get("platform") or "woocommerce").lower()
     if platform == "wordpress":
         platform = "woocommerce"
+    from src.services.service_chat import is_service_platform
+
+    if is_service_platform(platform):
+        platform = "service"
 
     consumer_key_set = bool((tenant.get("consumer_key") or "").strip())
     consumer_secret_set = bool((tenant.get("consumer_secret") or "").strip())
@@ -1084,12 +1088,18 @@ def app_settings_store_connection(
     consumer_key: str = Form(""),
     consumer_secret: str = Form(""),
     access_token: str = Form(""),
+    contact_phone: str = Form(""),
+    contact_email: str = Form(""),
+    booking_url: str = Form(""),
+    emergency_url: str = Form(""),
+    longterm_url: str = Form(""),
 ):
     denied = _require(request, store_id)
     if denied:
         return denied
     from src.services.store import register_tenant
     from src.services.shopify_service import shopify_store_id
+    from src.services.service_chat import is_service_platform
 
     tenant = get_tenant(store_id, include_inactive=True, include_secrets=True)
     if not tenant:
@@ -1100,6 +1110,8 @@ def app_settings_store_connection(
     platform = (tenant.get("platform") or "woocommerce").lower()
     if platform == "wordpress":
         platform = "woocommerce"
+    if is_service_platform(platform):
+        platform = "service"
 
     name = (store_name or "").strip() or tenant.get("store_name") or store_id
     payload = {
@@ -1110,7 +1122,33 @@ def app_settings_store_connection(
     payload["platform"] = platform
     payload["store_name"] = name
 
-    if platform == "shopify":
+    if platform == "service":
+        url = (store_url or "").strip().rstrip("/")
+        if url and not url.startswith("http"):
+            url = f"https://{url}"
+        if not url:
+            return _flash_redirect(
+                store_id,
+                "settings",
+                "Website URL is required.",
+                request=request,
+                error=True,
+            )
+        payload["store_url"] = url
+        if contact_phone.strip():
+            payload["contact_phone"] = contact_phone.strip()
+        if contact_email.strip():
+            payload["contact_email"] = contact_email.strip()
+        if booking_url.strip():
+            payload["booking_url"] = booking_url.strip()
+        if emergency_url.strip():
+            payload["emergency_url"] = emergency_url.strip()
+        if longterm_url.strip():
+            payload["longterm_url"] = longterm_url.strip()
+        payload.pop("consumer_key", None)
+        payload.pop("consumer_secret", None)
+        payload.pop("access_token", None)
+    elif platform == "shopify":
         shop = shopify_store_id(store_url or tenant.get("store_url") or store_id)
         if not shop:
             return _flash_redirect(
