@@ -1,9 +1,9 @@
 from typing import Dict, Any, List, Optional, TypedDict
 import json
 import os
-import sqlite3
-import threading
 import time
+
+from src.services.db import APP_DB, USE_MYSQL, _lock, get_conn
 
 TENANTS_FILE = os.getenv("TENANTS_FILE", "tenants.json")
 # Only re-import JSON seed when explicitly enabled (avoids resurrecting old stores on each deploy).
@@ -20,10 +20,8 @@ TENANTS_BACKUP = os.getenv("TENANTS_BACKUP", "0").strip().lower() in (
     "yes",
     "on",
 )
-APP_DB = os.getenv("SESSIONS_DB", os.getenv("APP_DB", "data/app.db"))
 
 tenants: dict = {}
-_lock = threading.Lock()
 
 
 class Session(TypedDict):
@@ -34,33 +32,33 @@ class Session(TypedDict):
 
 
 def _ensure_db():
-    folder = os.path.dirname(APP_DB)
-    if folder:
-        os.makedirs(folder, exist_ok=True)
-    with sqlite3.connect(APP_DB) as conn:
+    with get_conn() as conn:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS sessions (
-                session_id TEXT PRIMARY KEY,
-                store_id TEXT NOT NULL,
-                messages TEXT NOT NULL DEFAULT '[]',
-                answers TEXT NOT NULL DEFAULT '{}',
-                user_context TEXT NOT NULL DEFAULT '{}',
-                updated_at REAL NOT NULL
+                session_id VARCHAR(191) PRIMARY KEY,
+                store_id VARCHAR(191) NOT NULL,
+                messages LONGTEXT NOT NULL,
+                answers TEXT NOT NULL,
+                user_context TEXT NOT NULL,
+                updated_at DOUBLE NOT NULL
             )
             """
         )
         conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_store ON sessions(store_id)"
+        )
+        conn.execute(
             """
             CREATE TABLE IF NOT EXISTS tenants (
-                store_id TEXT PRIMARY KEY,
-                platform TEXT NOT NULL DEFAULT 'woocommerce',
-                store_name TEXT NOT NULL DEFAULT 'My Store',
-                store_url TEXT NOT NULL DEFAULT '',
-                credentials TEXT NOT NULL DEFAULT '{}',
-                active INTEGER NOT NULL DEFAULT 1,
-                created_at REAL NOT NULL,
-                updated_at REAL NOT NULL
+                store_id VARCHAR(191) PRIMARY KEY,
+                platform VARCHAR(64) NOT NULL DEFAULT 'woocommerce',
+                store_name VARCHAR(255) NOT NULL DEFAULT 'My Store',
+                store_url VARCHAR(500) NOT NULL DEFAULT '',
+                credentials TEXT NOT NULL,
+                active TINYINT NOT NULL DEFAULT 1,
+                created_at DOUBLE NOT NULL,
+                updated_at DOUBLE NOT NULL
             )
             """
         )
@@ -71,7 +69,7 @@ _ensure_db()
 
 
 def _conn():
-    return sqlite3.connect(APP_DB)
+    return get_conn()
 
 
 def _detect_platform(data: dict) -> str:

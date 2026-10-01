@@ -3,15 +3,15 @@
 import os
 import hmac
 import hashlib
-import sqlite3
 import time
 from typing import Optional
 
 from fastapi import Request, HTTPException
 from fastapi.responses import RedirectResponse
 
+from src.services.db import get_conn
+
 COOKIE_NAME = "asa_admin_session"
-APP_DB = os.getenv("SESSIONS_DB", os.getenv("APP_DB", "data/app.db"))
 
 _ENV_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 _ENV_PASSWORD = os.getenv("ADMIN_PASSWORD", "change-me")
@@ -23,10 +23,7 @@ ADMIN_SECRET = os.getenv("ADMIN_SECRET", "") or hashlib.sha256(
 
 
 def _conn():
-    folder = os.path.dirname(APP_DB)
-    if folder:
-        os.makedirs(folder, exist_ok=True)
-    return sqlite3.connect(APP_DB)
+    return get_conn()
 
 
 def _ensure_profile_table():
@@ -34,11 +31,11 @@ def _ensure_profile_table():
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS admin_profile (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                username TEXT NOT NULL,
-                password_hash TEXT NOT NULL,
-                display_name TEXT NOT NULL DEFAULT 'Admin',
-                updated_at REAL NOT NULL
+                id INT PRIMARY KEY CHECK (id = 1),
+                username VARCHAR(191) NOT NULL,
+                password_hash VARCHAR(191) NOT NULL,
+                display_name VARCHAR(191) NOT NULL DEFAULT 'Admin',
+                updated_at DOUBLE NOT NULL
             )
             """
         )

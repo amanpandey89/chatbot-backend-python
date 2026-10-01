@@ -5,7 +5,6 @@ import hmac
 import hashlib
 import secrets
 import base64
-import sqlite3
 import time
 from typing import Optional
 from urllib.parse import urlencode
@@ -19,8 +18,8 @@ from src.services.store import (
     get_tenant,
     set_tenant_active,
     list_tenants,
-    APP_DB,
 )
+from src.services.db import get_conn
 from src.services.shopify_service import shopify_store_id, fetch_shop_currency_symbol
 
 router = APIRouter(prefix="/shopify", tags=["shopify"])
@@ -125,16 +124,13 @@ def _install_bounce_html(authorize_url: str, shop: str, backend: str) -> str:
 
 
 def _ensure_oauth_table():
-    folder = os.path.dirname(APP_DB)
-    if folder:
-        os.makedirs(folder, exist_ok=True)
-    with sqlite3.connect(APP_DB) as conn:
+    with get_conn() as conn:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS shopify_oauth_states (
-                state TEXT PRIMARY KEY,
-                shop TEXT NOT NULL,
-                created_at REAL NOT NULL
+                state VARCHAR(191) PRIMARY KEY,
+                shop VARCHAR(255) NOT NULL,
+                created_at DOUBLE NOT NULL
             )
             """
         )
@@ -145,9 +141,8 @@ _ensure_oauth_table()
 
 
 def _save_oauth_state(state: str, shop: str):
-    _ensure_oauth_table()
     now = time.time()
-    with sqlite3.connect(APP_DB) as conn:
+    with get_conn() as conn:
         conn.execute(
             "DELETE FROM shopify_oauth_states WHERE created_at < ?",
             (now - OAUTH_STATE_TTL,),
@@ -163,9 +158,8 @@ def _consume_oauth_state(state: str) -> Optional[str]:
     """Validate and consume one-time state. Returns shop if valid."""
     if not state:
         return None
-    _ensure_oauth_table()
     now = time.time()
-    with sqlite3.connect(APP_DB) as conn:
+    with get_conn() as conn:
         row = conn.execute(
             "SELECT shop, created_at FROM shopify_oauth_states WHERE state = ?",
             (state,),

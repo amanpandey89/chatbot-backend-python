@@ -18,9 +18,12 @@ from src.services.store import register_tenant, get_tenant, migrate_tenants_from
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from src.services.store import APP_DB
+    from src.services.db import APP_DB, USE_MYSQL, MYSQL_HOST, MYSQL_DATABASE
 
-    print(f"APP_DB          : {os.path.abspath(APP_DB)}")
+    if USE_MYSQL:
+        print(f"Database        : MySQL @ {MYSQL_HOST} / {MYSQL_DATABASE}")
+    else:
+        print(f"Database        : SQLite @ {os.path.abspath(APP_DB)}")
     migrate_tenants_from_json()
 
     store_id = os.getenv("STORE_ID")
