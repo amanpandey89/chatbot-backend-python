@@ -154,6 +154,8 @@ _pool = None
 def _get_pool():
     global _pool
     if _pool is None:
+        import time as _time
+
         import pymysql
         import pymysql.cursors
         from dbutils.pooled_db import PooledDB
@@ -162,23 +164,43 @@ def _get_pool():
         if not MYSQL_SSL_DISABLED:
             ssl_kwargs["ssl"] = {"ca": MYSQL_SSL_CA} if MYSQL_SSL_CA else {}
 
-        _pool = PooledDB(
-            creator=pymysql,
-            mincached=1,
-            maxcached=5,
-            maxconnections=10,
-            blocking=True,
-            ping=1,  # ping and transparently reconnect before handing out a connection
-            host=MYSQL_HOST,
-            port=MYSQL_PORT,
-            user=MYSQL_USER,
-            password=MYSQL_PASSWORD,
-            database=MYSQL_DATABASE,
-            charset="utf8mb4",
-            autocommit=False,
-            cursorclass=pymysql.cursors.Cursor,
-            **ssl_kwargs,
-        )
+        last_err = None
+        for attempt in range(1, 4):
+            try:
+                _pool = PooledDB(
+                    creator=pymysql,
+                    mincached=1,
+                    maxcached=5,
+                    maxconnections=10,
+                    blocking=True,
+                    ping=1,  # ping and transparently reconnect before handing out a connection
+                    host=MYSQL_HOST,
+                    port=MYSQL_PORT,
+                    user=MYSQL_USER,
+                    password=MYSQL_PASSWORD,
+                    database=MYSQL_DATABASE,
+                    charset="utf8mb4",
+                    autocommit=False,
+                    cursorclass=pymysql.cursors.Cursor,
+                    connect_timeout=10,
+                    **ssl_kwargs,
+                )
+                return _pool
+            except Exception as e:  # pymysql.err.OperationalError, socket.timeout, ...
+                last_err = e
+                if attempt < 3:
+                    _time.sleep(2)
+
+        raise RuntimeError(
+            f"Could not connect to MySQL at {MYSQL_USER}@{MYSQL_HOST}:{MYSQL_PORT}/"
+            f"{MYSQL_DATABASE} after 3 attempts ({last_err}). This is almost always a "
+            "firewall/network-allow-list problem, not a code or credentials problem — "
+            "a TCP timeout (vs. an auth error) means the connection never reached the "
+            "server. Add this host's outbound IP range to the MySQL server's firewall: "
+            "on Render, Dashboard -> service -> Connect -> Outbound tab gives the exact "
+            "CIDR range(s) to allow (shared per-region, not a single static IP unless "
+            "you buy Render's dedicated-outbound-IP add-on)."
+        ) from last_err
     return _pool
 
 
