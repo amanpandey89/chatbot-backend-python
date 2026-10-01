@@ -29,6 +29,14 @@ class WooConnectRequest(BaseModel):
     consumer_secret: str = ""
 
 
+class ServiceConnectRequest(BaseModel):
+    """WordPress plugin auto-connect for non-ecommerce service/lead sites (e.g. LiveStoreFix)."""
+
+    store_url: str = Field(..., min_length=4)
+    store_id: str = ""
+    store_name: str = ""
+
+
 def _slug_store_id(raw: str) -> str:
     text = (raw or "").strip().lower()
     text = re.sub(r"^https?://", "", text)
@@ -40,6 +48,20 @@ def _slug_store_id(raw: str) -> str:
         if first and first not in ("www", "shop", "store"):
             text = first
     text = re.sub(r"[^a-z0-9_-]+", "-", text).strip("-_")
+    return text[:64] or str(uuid.uuid4())[:8]
+
+
+def _service_store_id(raw: str) -> str:
+    """
+    Slug for service/lead tenants — preserves the full hostname (dots kept),
+    unlike _slug_store_id's first-label shortening, so staging/service
+    subdomains (e.g. staging.quickfixmystore.com) stay distinct store_ids.
+    """
+    text = (raw or "").strip().lower()
+    text = re.sub(r"^https?://", "", text)
+    text = text.split("/")[0]
+    text = re.sub(r"^www\.", "", text)
+    text = re.sub(r"[^a-z0-9_.-]+", "-", text).strip("-_")
     return text[:64] or str(uuid.uuid4())[:8]
 
 
@@ -152,6 +174,83 @@ def woo_connect(body: WooConnectRequest):
         "store_name": tenant.get("store_name") or store_name,
         "store_url": tenant.get("store_url") or store_url,
         "platform": "woocommerce",
+        "message": (
+            "Store connected."
+            if not created
+            else "Store created and connected. You can create a merchant account next."
+        ),
+        "login_url": f"/app/{store_id}/login",
+    }
+
+
+@router.post("/service/connect")
+def service_connect(body: ServiceConnectRequest):
+    """
+    Auto-register / refresh a service (non-ecommerce lead/support) tenant from
+    the WordPress plugin, e.g. LiveStoreFix. Mirrors woo_connect() but never
+    touches WooCommerce credentials and preserves full hostnames in store_id.
+    """
+    store_url = (body.store_url or "").strip().rstrip("/")
+    if not store_url:
+        raise HTTPException(status_code=400, detail="store_url is required.")
+    if not store_url.startswith("http"):
+        store_url = f"https://{store_url}"
+
+    raw_store_id = (body.store_id or "").strip()
+    store_id = _service_store_id(raw_store_id) if raw_store_id else _service_store_id(store_url)
+    if len(store_id) < 2:
+        raise HTTPException(status_code=400, detail="store_id is too short.")
+
+    store_name = (body.store_name or "").strip() or store_id
+    claim_host = normalize_store_host(store_url)
+
+    existing = get_tenant(store_id, include_inactive=True, include_secrets=True)
+    created = False
+
+    if existing:
+        existing_host = normalize_store_host(existing.get("store_url") or "")
+        # Service connect has no shared secret to prove ownership — refuse outright
+        # on a host mismatch instead of allowing a secret-based override.
+        if existing_host and claim_host and existing_host != claim_host:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f'Store ID "{store_id}" is already used by another site. '
+                    "Choose a different Store ID in plugin Settings."
+                ),
+            )
+
+        payload = {
+            k: v
+            for k, v in existing.items()
+            if k not in ("store_id", "active", "created_at", "updated_at")
+        }
+        payload["platform"] = "service"
+        payload["store_url"] = store_url
+        payload["store_name"] = store_name or existing.get("store_name") or store_id
+        register_tenant(store_id, payload, active=bool(existing.get("active", True)))
+    else:
+        created = True
+        payload = {
+            "platform": "service",
+            "store_url": store_url,
+            "store_name": store_name,
+        }
+        register_tenant(store_id, payload, active=True)
+
+    try:
+        ensure_tenant_api_key(store_id)
+    except Exception:
+        pass
+
+    tenant = get_tenant(store_id, include_inactive=True) or {}
+    return {
+        "success": True,
+        "created": created,
+        "store_id": store_id,
+        "store_name": tenant.get("store_name") or store_name,
+        "store_url": tenant.get("store_url") or store_url,
+        "platform": "service",
         "message": (
             "Store connected."
             if not created

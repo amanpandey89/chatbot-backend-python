@@ -1,46 +1,42 @@
-"""Per-tenant AI training (knowledge base, tone, rules) — SQLite."""
+"""Per-tenant AI training (knowledge base, tone, rules)."""
 
 from __future__ import annotations
 
 import json
-import sqlite3
 import time
 import uuid
 from typing import Any, Dict, List, Optional
 
-from src.services.store import APP_DB, _lock
+from src.services.db import get_conn, _lock
 
 
 def _conn():
-    return sqlite3.connect(APP_DB)
+    return get_conn()
 
 
 def ensure_training_tables():
-    folder = __import__("os").path.dirname(APP_DB)
-    if folder:
-        __import__("os").makedirs(folder, exist_ok=True)
     with _conn() as conn:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS tenant_settings (
-                store_id TEXT PRIMARY KEY,
-                tone TEXT NOT NULL DEFAULT '',
-                instructions TEXT NOT NULL DEFAULT '',
-                updated_at REAL NOT NULL
+                store_id VARCHAR(191) PRIMARY KEY,
+                tone TEXT NOT NULL,
+                instructions TEXT NOT NULL,
+                updated_at DOUBLE NOT NULL
             )
             """
         )
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS knowledge_entries (
-                id TEXT PRIMARY KEY,
-                store_id TEXT NOT NULL,
-                entry_type TEXT NOT NULL DEFAULT 'faq',
-                title TEXT NOT NULL DEFAULT '',
-                content TEXT NOT NULL DEFAULT '',
-                active INTEGER NOT NULL DEFAULT 1,
-                created_at REAL NOT NULL,
-                updated_at REAL NOT NULL
+                id VARCHAR(191) PRIMARY KEY,
+                store_id VARCHAR(191) NOT NULL,
+                entry_type VARCHAR(32) NOT NULL DEFAULT 'faq',
+                title VARCHAR(500) NOT NULL DEFAULT '',
+                content LONGTEXT NOT NULL,
+                active TINYINT NOT NULL DEFAULT 1,
+                created_at DOUBLE NOT NULL,
+                updated_at DOUBLE NOT NULL
             )
             """
         )

@@ -1,0 +1,93 @@
+AI Shopping / Support Chatbot — Project Summary
+===============================================
+Repo: chatbot-backend-python (EvinceDev)
+Backend: Python 3.12, FastAPI, Uvicorn, OpenAI (GPT-4o-mini), SQLite (APP_DB)
+Deploy: Render (e.g. chatbot-backend-python-ftz6.onrender.com); Railway also documented
+Widget: static/chatbot.js (embed via data-store-id, data-backend-url, optional data-mode=service)
+
+WHAT THE PROJECT DOES
+---------------------
+- Embeddable chat bubble for storefronts and marketing/lead sites
+- Shopping mode (WooCommerce / Shopify): product recommendations, PLP navigation, order lookup
+- Service mode (LiveStoreFix): lead/support chat, CTAs (free rescue, emergency $399, long-term), phone/email — no product catalog
+
+CORE BACKEND
+------------
+- Multi-tenant SQLite store registry (store.py): platform, credentials, sessions, active flag
+- APIs: /api/session, /api/chat, /api/products, /api/register, /api/woocommerce/connect
+- Admin dashboard (/admin): create/manage stores, Shopify install, merchant login reset
+- Merchant dashboard (/app/{store_id}): settings, Train AI, chats, sync — username/password (not WP admin)
+- Per-tenant OpenAI keys; RAG/knowledge training (crawl, Woo/Shopify sync, embeddings)
+
+WOOCOMMERCE
+-----------
+- REST catalog + order status lookup from chat
+- WordPress plugin (wordpress-plugin/ — gitignored): auto-connect via /api/woocommerce/connect, embed widget, user_context (guest cookies + logged-in prefs), merchant setup, link to dashboard
+- Quick replies, add-to-cart hooks (Woo sites)
+
+SHOPIFY
+-------
+- OAuth app (shopify_app.py), Admin API catalog, merchant setup/login like WordPress
+- Theme app embed extension; settings without Woo fields; connection test; PLP via /search or /collections
+- Catalog filter / iPhone generation matching fixes; product cards in widget
+
+WIDGET (chatbot.js)
+-------------------
+- Session start, chat, product cards, action/CTA cards, quick replies
+- Service mode: Support Assistant header, service quick replies, lead CTAs
+- PLP links open in new tab; improved message formatting (line breaks, numbered steps)
+
+LIVESTOREFIX / SERVICE MODE (Sep 2026)
+--------------------------------------
+- service_chat.py: prompts, DEFAULT_CTAS, quick replies, LiveStoreFix knowledge block
+- chat.py / session.py: skip catalog for service platforms; return greeting + actions
+- Merchant Settings: booking_url, emergency_url, longterm_url, contact_phone, contact_email
+- Admin: "Service / Lead site" platform when adding store
+- Staging: staging.quickfixmystore.com — WPCode footer embed (data-mode=service); tenant must exist on Render with matching store_id
+- Render: use persistent disk + APP_DB=/var/data/app.db or tenants lost on redeploy
+
+WP PLUGIN — NON-ECOMMERCE / SERVICE SITE SUPPORT (planned, Oct 2026)
+----------------------------------------------------------------------
+Goal: make wordpress-plugin/ai-shopping-assistant installable on non-ecommerce
+lead/support sites like LiveStoreFix, replacing the manual WPCode snippet.
+Backend already supports service tenants end-to-end (session/chat routing,
+CTAs, merchant dashboard settings) — gap is only in the plugin's auto-connect path.
+
+Planned changes:
+- Backend: add POST /api/service/connect (register.py) — same slug/hijack-
+  protection logic as /api/woocommerce/connect but registers platform="service"
+  and takes no Woo credentials. Existing /api/woocommerce/connect left untouched.
+- Plugin Settings: new asa_site_type option (woocommerce | service), radio/select.
+- class-asa-merchant.php connect(): branch on site type → POST to
+  /api/service/connect (no consumer key/secret) when site type is service.
+- ai-shopping-assistant.php asa_enqueue_frontend(): emit data-mode="service" and
+  skip building Woo cart_config when site type is service.
+- CTA fields (booking/emergency/longterm URL, phone, email) stay managed only in
+  the Merchant Dashboard (not duplicated into WP admin) — same pattern as Woo
+  credentials today (plugin connects, dashboard configures).
+- Bump plugin version + update plugin description for service-site support.
+
+WORDPRESS INTEGRATION OPTIONS
+-----------------------------
+1. WPCode snippet (footer): chatbot.js + backend URL + store ID + data-mode=service
+2. Preferred path (planned/partial): AI Shopping Assistant plugin — auto-register service site, Open Merchant Dashboard for CTA/settings (plugin still Woo-oriented; service connect + data-mode from plugin pending)
+
+NOTABLE FIXES (2025–2026 commits)
+----------------------------------
+- Shopify OAuth, dashboard, Train AI, sync
+- Merchant credentials from WordPress; auto store connect (no manual Admin step for Woo)
+- PLP URL fixes, catalog matching, Shopify settings UI, test connection flash in iframe
+- Order tracking + WooCommerce lookup; ecommerce support prompts
+- LiveStoreFix service platform (commit 2026-09-21)
+
+LOCAL / OPS
+-----------
+- .env: OPENAI_API_KEY, APP_URL, Shopify keys, APP_DB on production
+- Health: /health
+- README.md for setup; wordpress-plugin/ not pushed to GitHub (.gitignore)
+
+OPEN / FOLLOW-UP
+----------------
+- WordPress plugin update for LiveStoreFix (service auto-connect, CTA management via dashboard, replace WPCode) — see "WP PLUGIN — NON-ECOMMERCE / SERVICE SITE SUPPORT" above for the concrete plan
+- POST /api/service/connect (or extend register) for non-Woo sites — part of the plan above
+- Ensure Render persistent SQLite for production tenants

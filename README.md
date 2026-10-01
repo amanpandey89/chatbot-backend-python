@@ -65,10 +65,13 @@ Open `http://localhost:3000/docs` for API docs, `/admin` for the dashboard.
 | `SHOPIFY_SCOPES` | No | Default `read_products,read_orders,read_customers` |
 | `STORE_ID` / `WC_*` | Optional | Auto-register one Woo store on startup |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | No | Dashboard login (`admin` / `change-me`) |
-| `APP_DB` | Recommended on Render | SQLite path, e.g. `/var/data/app.db` on a persistent disk |
+| `APP_DB` | Only without MySQL | SQLite path, e.g. `/var/data/app.db` on a persistent disk |
+| `MYSQL_HOST` / `MYSQL_DATABASE` / `MYSQL_USER` / `MYSQL_PASSWORD` | Recommended | Set all of these to switch the app to MySQL (pooled, via `src/services/db.py`). Leave unset to keep using SQLite. |
+| `MYSQL_PORT` | No | Default `3306` |
+| `MYSQL_SSL_CA` / `MYSQL_SSL_DISABLED` | No | CA bundle path if your host needs one verified; set `MYSQL_SSL_DISABLED=1` only for a host with no TLS |
 | `TENANTS_MIGRATE` | No | Set `1` only to seed from `tenants.json` (default off) |
 
-> **Render note:** Stores live in SQLite (`APP_DB`). Without a persistent Disk, every deploy wipes the DB. Do not commit `tenants.json` — it used to re-import old stores after each deploy.
+> **Storage:** the app uses MySQL when `MYSQL_HOST`/`MYSQL_DATABASE`/`MYSQL_USER` are all set, otherwise SQLite (`APP_DB`). On Render without MySQL, SQLite needs a persistent Disk or every deploy wipes the DB. Do not commit `tenants.json` — it used to re-import old stores after each deploy.
 
 ---
 
